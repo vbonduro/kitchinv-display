@@ -15,7 +15,8 @@ import network as _net
 
 from . import portal
 
-_AP_SSID = "KitchInv-Setup"
+AP_SSID = "KitchInv-Setup"
+AP_IP = "192.168.4.1"
 _CONNECT_TIMEOUT_MS = 30_000
 
 
@@ -45,9 +46,9 @@ def run_captive_portal():
     logging.info("Found %d networks", len(networks))
 
     ap = _net.WLAN(_net.AP_IF)
-    ap.config(ssid=_AP_SSID, security=0)
+    ap.config(ssid=AP_SSID, security=0)
     ap.active(True)
-    logging.info("AP active — SSID: %s", _AP_SSID)
+    logging.info("AP active — SSID: %s", AP_SSID)
     try:
         return portal.run(networks)
     finally:

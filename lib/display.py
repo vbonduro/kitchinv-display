@@ -30,15 +30,33 @@ WIDTH = 800
 HEIGHT = 480
 
 
-def make_framebuf():
-    """Return a correctly-sized MONO_HLSB FrameBuffer for this display.
+class FrameBuf:
+    """FrameBuffer wrapper that keeps the backing bytearray alive and accessible.
 
-    The caller owns the buffer and uses it for drawing.  Pass it to
+    MicroPython's FrameBuffer doesn't support slice indexing, so the raw
+    buffer must be passed to the EPD driver separately.  This class bundles
+    both so callers only deal with one object.
+
+    Drawing methods (fill, text, line, rect, …) are delegated to the inner
+    FrameBuffer via __getattr__.
+    """
+
+    def __init__(self):
+        self._buf = bytearray(WIDTH * HEIGHT // 8)
+        self._fb = framebuf.FrameBuffer(self._buf, WIDTH, HEIGHT, framebuf.MONO_HLSB)
+
+    def __getattr__(self, name):
+        return getattr(self._fb, name)
+
+
+def make_framebuf():
+    """Return a correctly-sized FrameBuf for this display.
+
+    The caller owns it and uses it for drawing.  Pass it to
     Display.show() or Display.show_fast() when ready to render.
     Multiple framebuffers can coexist (e.g. one for status, one for inventory).
     """
-    buf = bytearray(WIDTH * HEIGHT // 8)
-    return framebuf.FrameBuffer(buf, WIDTH, HEIGHT, framebuf.MONO_HLSB)
+    return FrameBuf()
 
 
 class Display:
@@ -54,10 +72,9 @@ class Display:
     def show(self, fb):
         """Push *fb* to the panel using a full refresh (~2-3 s).
 
-        *fb* must be a MONO_HLSB FrameBuffer of size WIDTH × HEIGHT,
-        as returned by make_framebuf().
+        *fb* must be a FrameBuf as returned by make_framebuf().
         """
-        self._epd.display(fb)
+        self._epd.display(fb._buf)
 
     def show_fast(self, fb):
         """Push *fb* using the fast-refresh LUT (~0.5 s, slight ghosting).
@@ -66,7 +83,7 @@ class Display:
         Call show() for the next full-quality update if ghosting becomes an issue.
         """
         self._epd.init_fast()
-        self._epd.display(fb)
+        self._epd.display(fb._buf)
 
     def sleep(self):
         """Put the panel into deep sleep.  Call Display() again to wake it."""
