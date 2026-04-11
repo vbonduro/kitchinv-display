@@ -11,8 +11,7 @@ Public API
     from lib.renderer import Renderer
 
     r = Renderer()
-    r.show_ap_setup(ssid="KitchInv-Setup", ip="192.168.4.1")
-    r.show_connecting(ssid="MyNetwork")
+    r.show_centered("To configure this device:", "1. Connect to WiFi: KitchInv-Setup")
 """
 
 import framebuf
@@ -25,12 +24,21 @@ _BORDER = 3
 # Padding between border and content.
 _PAD = 24
 
+# Text scale — each character is 8*scale × 8*scale pixels.
+_SCALE = 2
+
+# Line height in pixels.
+_LINE_H = 8 * _SCALE
+
+# Gap between lines.
+_LINE_GAP = 12
+
 # Nameplate label.
 _BRAND = "KITCHINV"
 
 
 # ---------------------------------------------------------------------------
-# Internal drawing helpers (module-level, no display dependency)
+# Internal drawing helpers
 # ---------------------------------------------------------------------------
 
 
@@ -39,7 +47,7 @@ def _draw_text_scaled(fb, text, x, y, color, scale):
     bg = 1 - color
     for i, ch in enumerate(text):
         cx = x + i * 8 * scale
-        tmp_buf = bytearray(8)  # 8 px wide × 8 px tall / 8 = 8 bytes
+        tmp_buf = bytearray(8)
         tmp = framebuf.FrameBuffer(tmp_buf, 8, 8, framebuf.MONO_HLSB)
         tmp.fill(bg)
         tmp.text(ch, 0, 0, color)
@@ -66,7 +74,7 @@ def _draw_frame(fb):
 
     # Bottom border in two segments with a gap for the nameplate.
     brand_w = _text_width(_BRAND, scale=2)
-    brand_gap = brand_w + 20  # 10px breathing room each side
+    brand_gap = brand_w + 20
     gap_x = (WIDTH - brand_gap) // 2
     fb.fill_rect(0, HEIGHT - _BORDER, gap_x, _BORDER, 0)
     fb.fill_rect(gap_x + brand_gap, HEIGHT - _BORDER, WIDTH - (gap_x + brand_gap), _BORDER, 0)
@@ -86,45 +94,17 @@ class Renderer:
     def __init__(self):
         self._display = Display()
 
-    def show_ap_setup(self, ssid, ip):
-        """Show the captive portal setup screen.
-
-        Instructs the user to connect to *ssid* and open *ip* in a browser.
-        """
+    def show_centered(self, *lines):
+        """Render *lines* of text centred on screen, equally spaced as a block."""
         fb = make_framebuf()
         fb.fill(1)
         _draw_frame(fb)
 
-        inner_top = _BORDER + _PAD
-        inner_bottom = HEIGHT - _BORDER - _PAD - 16
-        content_height = (16 + 16) + 28 + (16 + 24) + 28 + (16 + 16)
-        y = inner_top + (inner_bottom - inner_top - content_height) // 2
-
-        _draw_centered(fb, "To configure this device:", y, 0, scale=2)
-        y += 16 + 28
-
-        _draw_centered(fb, "1. Connect to WiFi:", y, 0, scale=2)
-        y += 16 + 8
-        _draw_centered(fb, ssid, y, 0, scale=3)
-        y += 24 + 28
-
-        _draw_centered(fb, "2. Open browser to:", y, 0, scale=2)
-        y += 16 + 8
-        _draw_centered(fb, "http://" + ip, y, 0, scale=2)
-
-        self._display.show(fb)
-
-    def show_connecting(self, ssid):
-        """Show a 'Connecting to <ssid>...' screen."""
-        fb = make_framebuf()
-        fb.fill(1)
-        _draw_frame(fb)
-
-        total_h = 16 + 16 + 24  # line1 + gap + line2
+        total_h = len(lines) * _LINE_H + (len(lines) - 1) * _LINE_GAP
         y = (HEIGHT - total_h) // 2
 
-        _draw_centered(fb, "Connecting to...", y, 0, scale=2)
-        y += 16 + 16
-        _draw_centered(fb, ssid, y, 0, scale=3)
+        for line in lines:
+            _draw_centered(fb, line, y, 0, _SCALE)
+            y += _LINE_H + _LINE_GAP
 
         self._display.show(fb)

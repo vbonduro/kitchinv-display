@@ -18,12 +18,16 @@ settings = config.load()
 while settings is None:
     logging.warning("No wifi settings found. Switch to AP mode.")
     picozero.pico_led.blink(2)
-    r.show_ap_setup(ssid=AP_SSID, ip=AP_IP)
+    r.show_centered(
+        "To configure this device:",
+        "1. Connect to WiFi:  " + AP_SSID,
+        "2. Open browser to:  http://" + AP_IP,
+    )
     settings = wifi.run_captive_portal()
     config.save(settings)
 
 picozero.pico_led.blink(0.25)
-r.show_connecting(ssid=settings.wifi["ssid"])
+r.show_centered("Connecting to...", settings.wifi["ssid"])
 wifi.connect(settings.wifi)
 
 picozero.pico_led.on()
