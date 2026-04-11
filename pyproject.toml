@@ -1,0 +1,25 @@
+[project]
+name = "kitchinv-display"
+version = "0.1.0"
+description = "E-ink kitchen inventory display for Raspberry Pi Pico 2 W"
+requires-python = ">=3.12"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "micropython-rp2-stubs>=1.27",
+    "micropython-stdlib-stubs>=1.27",
+    "ruff>=0.6",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true  # MicroPython modules not covered by stubs
+
+[tool.ruff]
+# Conservative target — avoids suggesting syntax MicroPython doesn't support
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N"]
