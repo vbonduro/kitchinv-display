@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "kitchinv_display",
+  "project_id": "24f7e452-9a46-4a61-a491-6e1880ef79ae"
+}
