@@ -12,13 +12,13 @@ SLEEP_DURATION_S = 6 * 60 * 60
 
 logging.basicConfig(level=logging.INFO)
 
-r = Renderer()
+renderer = Renderer()
 
 settings = config.load()
 while settings is None:
     logging.warning("No wifi settings found. Switch to AP mode.")
     picozero.pico_led.blink(2)
-    r.show_centered(
+    renderer.show_centered(
         "To configure this device:",
         "1. Connect to WiFi:  " + AP_SSID,
         "2. Open browser to:  http://" + AP_IP,
@@ -27,7 +27,7 @@ while settings is None:
     config.save(settings)
 
 picozero.pico_led.blink(0.25)
-r.show_centered("Connecting to...", settings.wifi["ssid"])
+renderer.show_centered("Connecting to...", settings.wifi["ssid"])
 wifi.connect(settings.wifi)
 
 picozero.pico_led.on()
