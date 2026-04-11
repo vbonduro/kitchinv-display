@@ -20,6 +20,8 @@ ignore_missing_imports = true  # MicroPython modules not covered by stubs
 # Conservative target — avoids suggesting syntax MicroPython doesn't support
 target-version = "py38"
 line-length = 100
+# Vendored third-party drivers are excluded from style enforcement
+exclude = ["lib/epd7in5.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N"]
