@@ -1,4 +1,5 @@
 config.json
+features.ini
 *.tar.gz
 .venv/
 
