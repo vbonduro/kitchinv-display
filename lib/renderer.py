@@ -154,6 +154,30 @@ def _draw_area_header(fb: FrameBuf, area_name: str, page_indicator: str | None) 
 # ---------------------------------------------------------------------------
 
 
+# MicroPython's built-in font is 7-bit ASCII only.  Map common accented
+# characters to their ASCII base so they render instead of showing as '?'.
+_ACCENT_MAP = [
+    ("àáâãäå", "a"), ("ÀÁÂÃÄÅ", "A"),
+    ("èéêë",   "e"), ("ÈÉÊË",   "E"),
+    ("ìíîï",   "i"), ("ÌÍÎÏ",   "I"),
+    ("òóôõö",  "o"), ("ÒÓÔÕÖ",  "O"),
+    ("ùúûü",   "u"), ("ÙÚÛÜ",   "U"),
+    ("ýÿ",     "y"), ("Ý",      "Y"),
+    ("ç",      "c"), ("Ç",      "C"),
+    ("ñ",      "n"), ("Ñ",      "N"),
+    ("ß",      "ss"),
+]
+
+
+def _ascii_safe(text: str) -> str:
+    """Replace accented characters with their ASCII equivalents."""
+    for accented, base in _ACCENT_MAP:
+        for ch in accented:
+            if ch in text:
+                text = text.replace(ch, base)
+    return text
+
+
 def _truncate(text: str, max_chars: int) -> str:
     """Truncate *text* to *max_chars*, appending '>' to mark the cut."""
     if len(text) <= max_chars:
@@ -166,7 +190,7 @@ def _make_status_page(area_name: str, message: str) -> FrameBuf:
     fb = make_framebuf()
     fb.fill(1)
     _draw_frame(fb)
-    _draw_area_header(fb, area_name, None)
+    _draw_area_header(fb, _ascii_safe(area_name), None)
     message_y = (_ITEMS_Y + _CONTENT_BOTTOM - _CHAR_H) // 2
     _draw_text_centered(fb, message, message_y, 0, _BODY_SCALE)
     return fb
@@ -181,7 +205,7 @@ def _make_items_page(area_name: str, items: list, page: int, total_pages: int,
     _draw_frame(fb)
 
     indicator = "{} / {}".format(page + 1, total_pages) if total_pages > 1 else None
-    _draw_area_header(fb, area_name, indicator)
+    _draw_area_header(fb, _ascii_safe(area_name), indicator)
 
     page_items = items[page * items_per_page : (page + 1) * items_per_page]
     for i, item in enumerate(page_items):
@@ -189,7 +213,7 @@ def _make_items_page(area_name: str, items: list, page: int, total_pages: int,
         row = i % rows_per_col
         item_x = _CONTENT_X + col * col_w
         item_y = _ITEMS_Y + row * _ROW_H
-        label = _truncate(item.name, max_chars_per_col)
+        label = _truncate(_ascii_safe(item.name), max_chars_per_col)
         _draw_text_scaled(fb, label, item_x, item_y, 0, _BODY_SCALE)
 
     return fb
