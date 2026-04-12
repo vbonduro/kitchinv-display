@@ -22,6 +22,8 @@ Usage
     d.sleep()                   # deep-sleep before power-off
 """
 
+from typing import Any
+
 import framebuf
 
 from lib.epd7in5 import EPD_7in5
@@ -41,15 +43,15 @@ class FrameBuf:
     FrameBuffer via __getattr__.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._buf = bytearray(WIDTH * HEIGHT // 8)
         self._fb = framebuf.FrameBuffer(self._buf, WIDTH, HEIGHT, framebuf.MONO_HLSB)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._fb, name)
 
 
-def make_framebuf():
+def make_framebuf() -> "FrameBuf":
     """Return a correctly-sized FrameBuf for this display.
 
     The caller owns it and uses it for drawing.  Pass it to
@@ -60,23 +62,23 @@ def make_framebuf():
 
 
 class Display:
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialise the e-paper panel and clear it to white."""
         self._epd = EPD_7in5()
         self.clear()
 
-    def clear(self):
+    def clear(self) -> None:
         """Fill the panel white."""
         self._epd.Clear()
 
-    def show(self, fb):
+    def show(self, fb: FrameBuf) -> None:
         """Push *fb* to the panel using a full refresh (~2-3 s).
 
         *fb* must be a FrameBuf as returned by make_framebuf().
         """
         self._epd.display(fb._buf)
 
-    def show_fast(self, fb):
+    def show_fast(self, fb: FrameBuf) -> None:
         """Push *fb* using the fast-refresh LUT (~0.5 s, slight ghosting).
 
         Switches the panel into fast-refresh mode before sending the frame.
@@ -85,6 +87,6 @@ class Display:
         self._epd.init_fast()
         self._epd.display(fb._buf)
 
-    def sleep(self):
+    def sleep(self) -> None:
         """Put the panel into deep sleep.  Call Display() again to wake it."""
         self._epd.sleep()

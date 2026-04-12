@@ -15,6 +15,11 @@ dev = [
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true  # MicroPython modules not covered by stubs
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "lib.epd7in5"
+ignore_errors = true  # vendored third-party driver
 
 [tool.ruff]
 # Conservative target — avoids suggesting syntax MicroPython doesn't support

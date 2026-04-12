@@ -14,13 +14,14 @@ import time
 import network as _net
 
 from . import portal
+from .config import Settings
 
 AP_SSID = "KitchInv-Setup"
 AP_IP = "192.168.4.1"
 _CONNECT_TIMEOUT_MS = 30_000
 
 
-def _scan_networks():
+def _scan_networks() -> list[str]:
     """Scan for nearby SSIDs, sorted by signal strength, duplicates removed."""
     sta = _net.WLAN(_net.STA_IF)
     sta.active(True)
@@ -38,7 +39,7 @@ def _scan_networks():
     return networks
 
 
-def run_captive_portal():
+def run_captive_portal() -> Settings:
     """
     Scan networks, start AP mode, run the captive portal, tear down AP, return Settings.
     """
@@ -55,19 +56,19 @@ def run_captive_portal():
         ap.active(False)
 
 
-def connect(wifi):
+def connect(wifi: dict[str, str]) -> None:
     """
     Connect to a WiFi network in STA mode.
     Raises RuntimeError if the connection does not succeed within 30 seconds.
     """
     sta = _net.WLAN(_net.STA_IF)
     sta.active(False)
-    time.sleep_ms(500)  # let the radio settle after AP mode
+    time.sleep_ms(500)  # type: ignore[attr-defined]  # MicroPython extension
     sta.active(True)
     sta.connect(wifi["ssid"], wifi["password"])
     logging.info("Connecting to WiFi: %s", wifi["ssid"])
 
-    start = time.ticks_ms()
+    start = time.ticks_ms()  # type: ignore[attr-defined]  # MicroPython extension
     last_status = None
     while not sta.isconnected():
         status = sta.status()
@@ -77,12 +78,12 @@ def connect(wifi):
         if status < 0:  # terminal failure (wrong password, no AP, etc.)
             sta.active(False)
             raise RuntimeError("WiFi connection failed (status %d): %s" % (status, wifi["ssid"]))
-        if time.ticks_diff(time.ticks_ms(), start) > _CONNECT_TIMEOUT_MS:
+        if time.ticks_diff(time.ticks_ms(), start) > _CONNECT_TIMEOUT_MS:  # type: ignore[attr-defined]
             sta.active(False)
             raise RuntimeError("WiFi connection timed out (status %d): %s" % (status, wifi["ssid"]))
-        time.sleep_ms(100)
+        time.sleep_ms(100)  # type: ignore[attr-defined]  # MicroPython extension
 
 
-def my_ip():
+def my_ip() -> str:
     """Return the current STA IP address as a string."""
     return _net.WLAN(_net.STA_IF).ifconfig()[0]
