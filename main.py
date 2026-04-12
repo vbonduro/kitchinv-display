@@ -35,7 +35,9 @@ logging.basicConfig(level=logging.INFO)
 
 # RP2040 wake-from-deep-sleep cause; the named constant may not be exported.
 _DEEPSLEEP_RESET = getattr(machine, "DEEPSLEEP_RESET", 7)
-_IS_FIRST_BOOT = machine.reset_cause() != _DEEPSLEEP_RESET  # type: ignore[attr-defined]
+_reset_cause = machine.reset_cause()  # type: ignore[attr-defined]
+logging.info("reset_cause=%d deepsleep_reset=%d", _reset_cause, _DEEPSLEEP_RESET)
+_IS_FIRST_BOOT = _reset_cause != _DEEPSLEEP_RESET
 
 display = Display()
 renderer = Renderer()

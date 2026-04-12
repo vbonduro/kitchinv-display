@@ -21,6 +21,7 @@ deploy:
 # Remove saved WiFi/server config so the device boots into captive-portal mode.
 reset-config:
 	pkill -x mpremote 2>/dev/null || true
+	mpremote connect $(DEVICE) reset
 	mpremote connect $(DEVICE) rm :config.json 2>/dev/null || true
 	mpremote connect $(DEVICE) rm :cycle_state.bin 2>/dev/null || true
 	mpremote connect $(DEVICE) reset
