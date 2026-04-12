@@ -67,9 +67,13 @@ def make_framebuf() -> "FrameBuf":
 
 class Display:
     def __init__(self) -> None:
-        """Initialise the e-paper panel and clear it to white."""
+        """Initialise the e-paper panel hardware.
+
+        Does NOT clear the panel — e-paper is bistatic and holds its image
+        through power cycles.  Call clear() explicitly when a blank slate is
+        required (e.g. first power-on).
+        """
         self._epd = EPD_7in5()
-        self.clear()
 
     def clear(self) -> None:
         """Fill the panel white."""

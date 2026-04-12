@@ -249,11 +249,14 @@ class Renderer:
 
         return fb
 
-    def render_area(self, area: Area) -> tuple:
-        """Return (FrameBuf, RenderCursor | None) for page 0 of *area*.
+    def render_area(self, area: Area, page: int = 0) -> tuple:
+        """Return (FrameBuf, RenderCursor | None) for *page* of *area*.
 
         The cursor holds the layout state needed to render subsequent pages.
         It is None when the area has no items (single status page, no paging).
+
+        *page* is clamped to the valid range — safe to pass a stale index
+        from RTC memory if the area's item count has changed since last boot.
 
         Only one FrameBuf is allocated; callers should del it before calling
         next_page() to keep peak heap usage to a single 48 KB frame.
@@ -277,12 +280,14 @@ class Renderer:
         items_per_page = rows_per_col * num_cols
         total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
 
+        page = min(page, total_pages - 1)  # clamp stale index
+
         cursor = RenderCursor(
-            area.name, area.items, 0, total_pages,
+            area.name, area.items, page, total_pages,
             rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
         )
         fb = _make_items_page(
-            area.name, area.items, 0, total_pages,
+            area.name, area.items, page, total_pages,
             rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
         )
         return fb, cursor

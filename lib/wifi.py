@@ -104,6 +104,16 @@ def _connect_once(wifi: dict[str, str]) -> None:
         time.sleep_ms(100)  # type: ignore[attr-defined]  # MicroPython extension
 
 
+def disconnect() -> None:
+    """Disconnect from WiFi and deactivate the STA interface.
+
+    Call before machine.deepsleep() to cut the radio and maximise battery life.
+    """
+    sta = _net.WLAN(_net.STA_IF)
+    sta.disconnect()
+    sta.active(False)
+
+
 def my_ip() -> str:
     """Return the current STA IP address as a string."""
     return _net.WLAN(_net.STA_IF).ifconfig()[0]
