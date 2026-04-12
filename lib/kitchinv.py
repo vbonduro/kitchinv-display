@@ -58,6 +58,12 @@ class Area:
     def __repr__(self) -> str:
         return "Area(name={!r}, items={!r})".format(self.name, self.items)
 
+    @classmethod
+    def from_api(cls, raw_area: dict[str, Any], raw_items: list[dict[str, Any]]) -> "Area":
+        """Construct an Area from raw API response dicts."""
+        items = [Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in raw_items]
+        return cls(name=raw_area["name"], items=items)
+
 
 class Inventory:
     """The full kitchen inventory, composed of areas.
@@ -81,26 +87,12 @@ def _parse_count(quantity: str) -> int | None:
     """Parse a free-form quantity string into an integer count.
 
     Returns None if the string cannot be resolved to an integer.
-    Examples: "2" -> 2, "1 bag" -> 1, "half-full" -> None.
+    Examples: "2" -> 2, "half-full" -> None.
     """
-    quantity = quantity.strip()
-    if not quantity:
-        return None
-    # Fast path: the whole string is an integer.
     try:
-        return int(quantity)
+        return int(quantity.strip())
     except ValueError:
-        pass
-    # Slow path: extract leading digits.
-    digits = ""
-    for ch in quantity:
-        if ch.isdigit():
-            digits += ch
-        else:
-            break
-    if digits:
-        return int(digits)
-    return None
+        return None
 
 
 class KitchInv:
@@ -119,17 +111,16 @@ class KitchInv:
         if raw_areas is None:
             return None
 
-        areas: list[Area] = []
-        for raw in raw_areas:
-            area_id: int = raw["id"]
-            area_name: str = raw["name"]
-            raw_items = self._get_area_inventory(area_id)
+        def _fetch_area(raw: dict[str, Any]) -> Area | None:
+            raw_items = self._get_area_inventory(raw["id"])
             if raw_items is None:
-                _log.warning("skipping area %r (id=%s): failed to fetch items", area_name, area_id)
-                continue
-            items = [Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in raw_items]
-            areas.append(Area(name=area_name, items=items))
+                _log.warning(
+                    "skipping area %r (id=%s): failed to fetch items", raw["name"], raw["id"]
+                )
+                return None
+            return Area.from_api(raw, raw_items)
 
+        areas = [a for raw in raw_areas if (a := _fetch_area(raw)) is not None]
         return Inventory(areas=areas)
 
     def _get_areas(self) -> list[dict[str, Any]] | None:
