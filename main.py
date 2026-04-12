@@ -37,16 +37,18 @@ picozero.pico_led.on()
 logging.info("Connected to WiFi network: %s. IP=%s", settings.wifi["ssid"], wifi.my_ip())
 
 client = KitchInv(settings.kitchinv_url)
-inventory = client.get_inventory()
-logging.info("Fetched %d areas", len(inventory.areas) if inventory else 0)
+area_ids = client.get_area_ids()
+logging.info("Fetched %d area IDs", len(area_ids) if area_ids else 0)
 
-if inventory and inventory.areas:
-    first_area = inventory.areas[0]
-    del inventory  # free all other areas before allocating the framebuffer
-    logging.info("Rendering area: %s (%d items)", first_area.name, len(first_area.items))
-    fb, cursor = renderer.render_area(first_area)
-    del first_area  # cursor holds the items reference; area object no longer needed
-    display.show(fb)
+if area_ids:
+    first_id, first_name = area_ids[0]
+    del area_ids  # free the list before fetching items
+    area = client.get_area(first_id, first_name)
+    if area:
+        logging.info("Rendering area: %s (%d items)", area.name, len(area.items))
+        fb, cursor = renderer.render_area(area)
+        del area  # cursor holds the items reference
+        display.show(fb)
 
 while True:
     # TODO: replace with machine.lightsleep once query/display cycle is
