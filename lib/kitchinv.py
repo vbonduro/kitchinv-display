@@ -16,7 +16,6 @@ Usage
 """
 
 import logging
-from typing import Any
 
 import ujson
 import urequests
@@ -59,7 +58,7 @@ class Area:
         return "Area(name={!r}, items={!r})".format(self.name, self.items)
 
     @classmethod
-    def from_api(cls, raw_area: dict[str, Any], raw_items: list[dict[str, Any]]) -> "Area":
+    def from_api(cls, raw_area: dict, raw_items: list[dict]) -> "Area":
         """Construct an Area from raw API response dicts."""
         items = [Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in raw_items]
         return cls(name=raw_area["name"], items=items)
@@ -111,7 +110,7 @@ class KitchInv:
         if raw_areas is None:
             return None
 
-        def _fetch_area(raw: dict[str, Any]) -> Area | None:
+        def _fetch_area(raw: dict) -> Area | None:
             raw_items = self._get_area_inventory(raw["id"])
             if raw_items is None:
                 _log.warning(
@@ -123,18 +122,18 @@ class KitchInv:
         areas = [a for raw in raw_areas if (a := _fetch_area(raw)) is not None]
         return Inventory(areas=areas)
 
-    def _get_areas(self) -> list[dict[str, Any]] | None:
+    def _get_areas(self) -> list[dict] | None:
         """GET /api/areas → list of {id, name} dicts, or None on error."""
         url = self._base_url + "/api/areas"
         try:
             resp = urequests.get(url, timeout=_TIMEOUT_S)
-            data: list[dict[str, Any]] = ujson.loads(resp.content)
+            data: list[dict] = ujson.loads(resp.content)
             return data
         except Exception as exc:
             _log.error("get_areas failed: %s", exc)
             return None
 
-    def _get_area_inventory(self, area_id: int) -> list[dict[str, Any]] | None:
+    def _get_area_inventory(self, area_id: int) -> list[dict] | None:
         """GET /areas/{id}/items → list of Item dicts, or None on error."""
         url = "{}/areas/{}/items".format(self._base_url, area_id)
         try:
@@ -143,7 +142,7 @@ class KitchInv:
                 headers={"Accept": "application/json"},
                 timeout=_TIMEOUT_S,
             )
-            data: list[dict[str, Any]] = ujson.loads(resp.content)
+            data: list[dict] = ujson.loads(resp.content)
             return data
         except Exception as exc:
             _log.error("get_area_inventory(%s) failed: %s", area_id, exc)
