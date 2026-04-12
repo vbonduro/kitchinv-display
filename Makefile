@@ -18,6 +18,13 @@ deploy:
 	for f in lib/*.py; do mpremote connect $(DEVICE) cp $$f :$$f; done
 	mpremote connect $(DEVICE) reset
 
+# Remove saved WiFi/server config so the device boots into captive-portal mode.
+reset-config:
+	pkill -x mpremote 2>/dev/null || true
+	mpremote connect $(DEVICE) rm :config.json 2>/dev/null || true
+	mpremote connect $(DEVICE) rm :cycle_state.bin 2>/dev/null || true
+	mpremote connect $(DEVICE) reset
+
 check:
 	uv run ruff check $(SRC)
 	uv run mypy $(SRC)
