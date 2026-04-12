@@ -36,7 +36,7 @@ async def run_server(stop_event: uasyncio.Event, port: int = 53) -> None:
                 data, addr = sock.recvfrom(512)
                 sock.sendto(_build_response(data), addr)
             except OSError:
-                await uasyncio.sleep_ms(10)
+                await uasyncio.sleep_ms(1)
     finally:
         sock.close()
         logging.info("DNS server stopped.")

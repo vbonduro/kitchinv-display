@@ -125,9 +125,11 @@ def run(networks: list[str] | None = None) -> Settings:
 
     @app.route("/<path:path>", methods=["GET", "POST", "HEAD"])
     async def catchall(request, path: str) -> tuple[str, int, dict[str, str]]:  # type: ignore[no-untyped-def]
-        # Explicit 302 for known OS captive-portal probe paths so the OS
-        # shows a "Sign in to network" prompt. All other unknown paths also
-        # redirect to the portal root.
+        # iOS, Android, and Windows probe specific paths to detect captive portals.
+        # Serving the portal HTML directly (200) is more reliable than a redirect:
+        # some iOS versions treat the redirect target as "success" and skip the popup.
+        if "/" + path in _PROBE_PATHS:
+            return portal_html, 200, {"Content-Type": "text/html"}
         return "", 302, {"Location": "http://192.168.4.1/"}
 
     async def _shutdown_watcher() -> None:
