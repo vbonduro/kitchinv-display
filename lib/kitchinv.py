@@ -115,9 +115,11 @@ class KitchInv:
         if raw_areas is None:
             return None
 
-        areas = list(filter(None, [
-            Area.from_api(raw, self._get_area_inventory(raw["id"])) for raw in raw_areas
-        ]))
+        areas = list(
+            filter(
+                None, [Area.from_api(raw, self._get_area_inventory(raw["id"])) for raw in raw_areas]
+            )
+        )
         return Inventory(areas=areas)
 
     def _get_areas(self) -> list[dict] | None:

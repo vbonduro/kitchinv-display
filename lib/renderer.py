@@ -12,6 +12,8 @@ Public API
 
     r = Renderer()
     r.show_centered("To configure this device:", "1. Connect to WiFi: KitchInv-Setup")
+    total = r.render_area("Pantry", items)        # returns total page count
+    r.render_area("Pantry", items, page=1)        # render second page
 """
 
 import framebuf
@@ -35,6 +37,12 @@ _LINE_GAP = 12
 
 # Nameplate label.
 _BRAND = "KITCHINV"
+
+# Header scale for area name.
+_HEADER_SCALE = 3
+
+# Maximum number of columns for item layout.
+_MAX_COLS = 3
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +76,9 @@ def _draw_centered(fb: FrameBuf, text: str, y: int, color: int, scale: int) -> N
 
 def _draw_frame(fb: FrameBuf) -> None:
     """Draw the 3px border and KITCHINV nameplate on *fb*."""
-    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)                          # top
-    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)                         # left
-    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0)           # right
+    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)  # top
+    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)  # left
+    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0)  # right
 
     # Bottom border in two segments with a gap for the nameplate.
     brand_w = _text_width(_BRAND, scale=2)
@@ -88,6 +96,13 @@ def _draw_frame(fb: FrameBuf) -> None:
 # ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    """Truncate *text* to *max_chars*, appending '>' if shortened."""
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1] + ">"
 
 
 class Renderer:
@@ -108,3 +123,87 @@ class Renderer:
             y += _LINE_H + _LINE_GAP
 
         self._display.show(fb)
+
+    def render_area(self, area_name: str, items, page: int = 0) -> int:
+        """Render an inventory area onto the display.
+
+        Automatically selects the fewest columns needed to avoid pagination.
+        Falls back to _MAX_COLS columns with pagination if the list is too long.
+
+        *items* may be:
+          - a list of Item objects  — normal render
+          - an empty list           — shows "No items"
+          - None                    — shows "Fetch failed"
+
+        Returns the total number of pages so the caller can decide whether to
+        offer page-forward/back controls.
+        """
+        fb = make_framebuf()
+        fb.fill(1)
+        _draw_frame(fb)
+
+        x0 = _BORDER + _PAD
+        content_w = WIDTH - 2 * (_BORDER + _PAD)
+        content_bottom = HEIGHT - _BORDER - _PAD
+
+        # --- Header row ---
+        header_h = 8 * _HEADER_SCALE
+        y_header = _BORDER + _PAD
+        _draw_text_scaled(fb, area_name, x0, y_header, 0, _HEADER_SCALE)
+
+        # --- Body start (below header + rule) ---
+        y_rule = y_header + header_h + 4
+        fb.hline(x0, y_rule, content_w, 0)
+        y_body = y_rule + 6
+
+        # --- Status screens (no item list) ---
+        if items is None:
+            _draw_centered(fb, "Fetch failed", (y_body + content_bottom - _LINE_H) // 2, 0, _SCALE)
+            self._display.show(fb)
+            return 1
+
+        if not items:
+            _draw_centered(fb, "No items", (y_body + content_bottom - _LINE_H) // 2, 0, _SCALE)
+            self._display.show(fb)
+            return 1
+
+        # --- Choose column count ---
+        avail_h = content_bottom - y_body
+        row_h = _LINE_H + _LINE_GAP
+        rows_per_col = max(1, avail_h // row_h)
+
+        num_cols = 1
+        for candidate in range(1, _MAX_COLS + 1):
+            if rows_per_col * candidate >= len(items):
+                num_cols = candidate
+                break
+        else:
+            num_cols = _MAX_COLS
+
+        col_w = content_w // num_cols
+        max_chars = col_w // (8 * _SCALE)
+        items_per_page = rows_per_col * num_cols
+        total_pages = max(1, (len(items) + items_per_page - 1) // items_per_page)
+
+        # --- Pagination indicator (only when needed) ---
+        if total_pages > 1:
+            indicator = "{} / {}".format(page + 1, total_pages)
+            ind_w = _text_width(indicator, _SCALE)
+            ind_x = x0 + content_w - ind_w
+            ind_y = y_header + (header_h - _LINE_H) // 2  # vertically centred on header
+            _draw_text_scaled(fb, indicator, ind_x, ind_y, 0, _SCALE)
+
+        # --- Item list ---
+        start = page * items_per_page
+        page_items = items[start : start + items_per_page]
+
+        for i, item in enumerate(page_items):
+            col = i // rows_per_col
+            row = i % rows_per_col
+            x = x0 + col * col_w
+            y = y_body + row * row_h
+            label = _truncate(item.name, max_chars)
+            _draw_text_scaled(fb, label, x, y, 0, _SCALE)
+
+        self._display.show(fb)
+        return total_pages
