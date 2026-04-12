@@ -14,21 +14,21 @@ class Settings:
         self.wifi = wifi  # {"ssid": str, "password": str}
         self.kitchinv_url = kitchinv_url
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         # Omit password from repr
         return "Settings(wifi={!r}, kitchinv_url={!r})".format(
             {"ssid": self.wifi.get("ssid")}, self.kitchinv_url
         )
 
-    def _to_dict(self):
+    def _to_dict(self) -> dict:
         return {"wifi": self.wifi, "kitchinv_url": self.kitchinv_url}
 
     @classmethod
-    def _from_dict(cls, d):
+    def _from_dict(cls, d: dict) -> "Settings":
         return cls(wifi=d["wifi"], kitchinv_url=d["kitchinv_url"])
 
 
-def load():
+def load() -> Settings | None:
     """Load settings from config.json. Returns None if missing or malformed."""
     try:
         with open(_CONFIG_FILE, "r") as f:
@@ -41,7 +41,7 @@ def load():
         return None
 
 
-def save(settings):
+def save(settings: Settings) -> None:
     """Persist settings to config.json."""
     with open(_CONFIG_FILE, "w") as f:
         json.dump(settings._to_dict(), f)

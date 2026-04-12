@@ -7,11 +7,15 @@ then returns a populated Settings object.
 """
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 import uasyncio
 from microdot import Microdot
 
 from . import dns
+
+if TYPE_CHECKING:
+    from .config import Settings
 
 # Paths iOS and Android use to detect captive portals.
 # Returning a redirect (rather than the expected 204/success body) tells the
@@ -45,7 +49,7 @@ _SUCCESS_HTML = """\
 </html>"""
 
 
-def _portal_html(networks):
+def _portal_html(networks: list[str]) -> str:
     options = "".join('<option value="{}">'.format(s) for s in networks)
     return """\
 <!DOCTYPE html>
@@ -91,7 +95,7 @@ def _portal_html(networks):
 </html>""".format(options=options)
 
 
-def run(networks=None):
+def run(networks: list[str] | None = None) -> "Settings":
     """
     Serve the captive portal until valid credentials are submitted.
     networks: list of SSIDs to pre-populate the SSID field.
@@ -105,14 +109,14 @@ def run(networks=None):
     portal_html = _portal_html(networks)
     app = Microdot()
     stop_event = uasyncio.Event()
-    result = [None]
+    result: list[Settings | None] = [None]
 
     @app.get("/")
-    async def index(request):
+    async def index(request: Any) -> tuple[str, int, dict[str, str]]:
         return portal_html, 200, {"Content-Type": "text/html"}
 
     @app.post("/configure")
-    async def configure(request):
+    async def configure(request: Any) -> tuple[str, int, dict[str, str]]:
         ssid = (request.form.get("ssid") or "").strip()
         password = request.form.get("password") or ""
         kitchinv_url = (request.form.get("kitchinv_url") or "").strip()
@@ -125,17 +129,17 @@ def run(networks=None):
         return _SUCCESS_HTML, 200, {"Content-Type": "text/html"}
 
     @app.route("/<path:path>", methods=["GET", "POST", "HEAD"])
-    async def catchall(request, path):
+    async def catchall(request: Any, path: str) -> tuple[str, int, dict[str, str]]:
         # Explicit 302 for known OS captive-portal probe paths so the OS
         # shows a "Sign in to network" prompt. All other unknown paths also
         # redirect to the portal root.
         return "", 302, {"Location": "http://192.168.4.1/"}
 
-    async def _shutdown_watcher():
+    async def _shutdown_watcher() -> None:
         await stop_event.wait()
         app.shutdown()
 
-    async def _run():
+    async def _run() -> None:
         await uasyncio.gather(
             app.start_server(port=80, debug=False),
             dns.run_server(stop_event),
@@ -143,5 +147,6 @@ def run(networks=None):
         )
 
     uasyncio.run(_run())
+    assert result[0] is not None
     logging.info("Portal complete: %r", result[0])
     return result[0]

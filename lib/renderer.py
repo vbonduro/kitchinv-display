@@ -16,7 +16,7 @@ Public API
 
 import framebuf
 
-from lib.display import HEIGHT, WIDTH, Display, make_framebuf
+from lib.display import HEIGHT, WIDTH, Display, FrameBuf, make_framebuf
 
 # Border thickness in pixels.
 _BORDER = 3
@@ -42,7 +42,7 @@ _BRAND = "KITCHINV"
 # ---------------------------------------------------------------------------
 
 
-def _draw_text_scaled(fb, text, x, y, color, scale):
+def _draw_text_scaled(fb: FrameBuf, text: str, x: int, y: int, color: int, scale: int) -> None:
     """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char)."""
     bg = 1 - color
     for i, ch in enumerate(text):
@@ -57,16 +57,16 @@ def _draw_text_scaled(fb, text, x, y, color, scale):
                     fb.fill_rect(cx + px * scale, y + py * scale, scale, scale, color)
 
 
-def _text_width(text, scale):
+def _text_width(text: str, scale: int) -> int:
     return len(text) * 8 * scale
 
 
-def _draw_centered(fb, text, y, color, scale):
+def _draw_centered(fb: FrameBuf, text: str, y: int, color: int, scale: int) -> None:
     x = (WIDTH - _text_width(text, scale)) // 2
     _draw_text_scaled(fb, text, x, y, color, scale)
 
 
-def _draw_frame(fb):
+def _draw_frame(fb: FrameBuf) -> None:
     """Draw the 3px border and KITCHINV nameplate on *fb*."""
     fb.fill_rect(0, 0, WIDTH, _BORDER, 0)                          # top
     fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)                         # left
@@ -91,10 +91,10 @@ def _draw_frame(fb):
 
 
 class Renderer:
-    def __init__(self):
+    def __init__(self) -> None:
         self._display = Display()
 
-    def show_centered(self, *lines):
+    def show_centered(self, *lines: str) -> None:
         """Render *lines* of text centred on screen, equally spaced as a block."""
         fb = make_framebuf()
         fb.fill(1)
