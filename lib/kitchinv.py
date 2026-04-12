@@ -4,15 +4,19 @@ KitchInv API client for MicroPython.
 Fetches inventory data from the kitchinv server over HTTP and assembles it
 into typed data structures for the display to render.
 
+The client is intentionally lazy: callers fetch area IDs first, then request
+one area at a time.  This keeps only a single area's items in memory at once,
+which is critical on the Pico W's constrained heap.
+
 Usage
 -----
     from lib.kitchinv import KitchInv
 
     client = KitchInv("http://192.168.2.254:9000")
-    inventory = client.get_inventory()
-    if inventory is None:
-        # show error state
-        ...
+
+    area_ids = client.get_area_ids()   # [(id, name), ...] or None
+    if area_ids:
+        area = client.get_area(area_ids[0][0])   # Area | None
 """
 
 import logging
@@ -45,10 +49,7 @@ class Item:
 
 
 class Area:
-    """A named kitchen area with its inventory items.
-
-    Mirrors a dataclass — MicroPython has no dataclasses module.
-    """
+    """A named kitchen area with its inventory items."""
 
     def __init__(self, name: str, items: list[Item]) -> None:
         self.name = name
@@ -56,30 +57,6 @@ class Area:
 
     def __repr__(self) -> str:
         return "Area(name={!r}, items={!r})".format(self.name, self.items)
-
-    @classmethod
-    def from_api(cls, raw_area: dict, raw_items: list[dict] | None) -> "Area | None":
-        """Construct an Area from raw API response dicts, or None if items unavailable."""
-        if raw_items is None:
-            _log.warning(
-                "skipping area %r (id=%s): failed to fetch items", raw_area["name"], raw_area["id"]
-            )
-            return None
-        items = [Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in raw_items]
-        return cls(name=raw_area["name"], items=items)
-
-
-class Inventory:
-    """The full kitchen inventory, composed of areas.
-
-    Mirrors a dataclass — MicroPython has no dataclasses module.
-    """
-
-    def __init__(self, areas: list[Area]) -> None:
-        self.areas = areas
-
-    def __repr__(self) -> str:
-        return "Inventory(areas={!r})".format(self.areas)
 
 
 # ---------------------------------------------------------------------------
@@ -105,34 +82,27 @@ class KitchInv:
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url.rstrip("/")
 
-    def get_inventory(self) -> Inventory | None:
-        """Fetch all areas and their items, returning a complete Inventory.
+    def get_area_ids(self) -> list[tuple[int, str]] | None:
+        """Return a list of (area_id, area_name) tuples, or None on error.
 
-        Returns None if the areas list cannot be retrieved.  Individual areas
-        that fail to load are skipped — partial data is better than nothing.
+        This is a lightweight call — it fetches only area metadata, not items.
+        Use the returned IDs with get_area() to load one area at a time.
         """
-        raw_areas = self._get_areas()
-        if raw_areas is None:
-            return None
-
-        areas = list(filter(None, [
-            Area.from_api(raw, self._get_area_inventory(raw["id"])) for raw in raw_areas
-        ]))
-        return Inventory(areas=areas)
-
-    def _get_areas(self) -> list[dict] | None:
-        """GET /api/areas → list of {id, name} dicts, or None on error."""
         url = self._base_url + "/api/areas"
         try:
             resp = urequests.get(url, timeout=_TIMEOUT_S)
-            data: list[dict] = ujson.loads(resp.content)
-            return data
+            raw: list[dict] = ujson.loads(resp.content)
+            return [(a["id"], a["name"]) for a in raw]
         except Exception as exc:
-            _log.error("get_areas failed: %s", exc)
+            _log.error("get_area_ids failed: %s", exc)
             return None
 
-    def _get_area_inventory(self, area_id: int) -> list[dict] | None:
-        """GET /areas/{id}/items → list of Item dicts, or None on error."""
+    def get_area(self, area_id: int, area_name: str) -> "Area | None":
+        """Fetch items for *area_id* and return an Area instance, or None on error.
+
+        *area_name* is the name returned alongside the ID by get_area_ids().
+        Keeping it as a separate parameter avoids a redundant network call.
+        """
         url = "{}/areas/{}/items".format(self._base_url, area_id)
         try:
             resp = urequests.get(
@@ -140,8 +110,10 @@ class KitchInv:
                 headers={"Accept": "application/json"},
                 timeout=_TIMEOUT_S,
             )
-            data: list[dict] = ujson.loads(resp.content)
-            return data
+            raw_items: list[dict] = ujson.loads(resp.content)
         except Exception as exc:
-            _log.error("get_area_inventory(%s) failed: %s", area_id, exc)
+            _log.error("get_area(%s) failed: %s", area_id, exc)
             return None
+
+        items = [Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in raw_items]
+        return Area(name=area_name, items=items)

@@ -56,11 +56,31 @@ def run_captive_portal() -> Settings:
         ap.active(False)
 
 
+_CONNECT_RETRIES = 3
+_RETRY_DELAY_MS = 2_000
+
+
 def connect(wifi: dict[str, str]) -> None:
+    """Connect to a WiFi network in STA mode.
+
+    Retries up to _CONNECT_RETRIES times to handle transient failures
+    (e.g. STAT_CONNECT_FAIL/-1 during DHCP or brief signal drops).
+    Raises RuntimeError if all attempts fail.
     """
-    Connect to a WiFi network in STA mode.
-    Raises RuntimeError if the connection does not succeed within 30 seconds.
-    """
+    for attempt in range(_CONNECT_RETRIES):
+        try:
+            _connect_once(wifi)
+            return
+        except RuntimeError as exc:
+            if attempt < _CONNECT_RETRIES - 1:
+                logging.warning("WiFi attempt %d failed (%s), retrying…", attempt + 1, exc)
+                time.sleep_ms(_RETRY_DELAY_MS)  # type: ignore[attr-defined]
+            else:
+                raise
+
+
+def _connect_once(wifi: dict[str, str]) -> None:
+    """Single connection attempt — raises RuntimeError on failure or timeout."""
     sta = _net.WLAN(_net.STA_IF)
     sta.active(False)
     time.sleep_ms(500)  # type: ignore[attr-defined]  # MicroPython extension

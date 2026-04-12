@@ -27,11 +27,6 @@ class EPD_7in5:
         self.spi.init(baudrate=4000_000)
         self.dc_pin = Pin(DC_PIN, Pin.OUT)
 
-        self.buffer_1Gray = bytearray(self.height * self.width // 8)
-        self.buffer_4Gray = bytearray(self.height * self.width // 4)
-
-        self.image1Gray = framebuf.FrameBuffer(self.buffer_1Gray, self.width, self.height, framebuf.MONO_HLSB)
-        self.image4Gray = framebuf.FrameBuffer(self.buffer_4Gray, self.width, self.height, framebuf.GS2_HMSB)
         self.init()
 
     def digital_write(self, pin, value):
