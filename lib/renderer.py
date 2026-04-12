@@ -4,49 +4,84 @@ Renderer for the KitchInv e-paper display.
 All screens share a common chrome: a 3px border with "KITCHINV" centred
 as a nameplate in the bottom edge.
 
-The Renderer owns and initialises the Display on construction.
+The Renderer builds FrameBuf objects; the caller owns the Display and decides
+when to push each frame to the panel.
 
 Public API
 ----------
+    from lib.display import Display
     from lib.renderer import Renderer
+    from lib.kitchinv import Area
 
+    display = Display()
     r = Renderer()
-    r.show_centered("To configure this device:", "1. Connect to WiFi: KitchInv-Setup")
-    total = r.render_area("Pantry", items)        # returns total page count
-    r.render_area("Pantry", items, page=1)        # render second page
+
+    display.show(r.render_text_centered("To configure:", "1. Connect to WiFi: KitchInv-Setup"))
+
+    pages = r.render_area(area)   # list[FrameBuf], one per page
+    display.show(pages[0])
 """
 
 import framebuf
 
-from lib.display import HEIGHT, WIDTH, Display, FrameBuf, make_framebuf
+from lib.display import HEIGHT, WIDTH, FrameBuf, make_framebuf
+from lib.kitchinv import Area
+
+# ---------------------------------------------------------------------------
+# Display constants
+# ---------------------------------------------------------------------------
 
 # Border thickness in pixels.
 _BORDER = 3
 
-# Padding between border and content.
+# Padding between border and content area.
 _PAD = 24
 
-# Text scale — each character is 8*scale × 8*scale pixels.
-_SCALE = 2
+# Text scale used for body copy — each character is 8*scale × 8*scale pixels.
+_BODY_SCALE = 2
 
-# Line height in pixels.
-_LINE_H = 8 * _SCALE
+# Character cell height at body scale.
+_CHAR_H = 8 * _BODY_SCALE
 
-# Gap between lines.
+# Gap between body-text lines.
 _LINE_GAP = 12
 
-# Nameplate label.
+# Total row height (character + gap).
+_ROW_H = _CHAR_H + _LINE_GAP
+
+# Nameplate label burned into the bottom border.
 _BRAND = "KITCHINV"
 
-# Header scale for area name.
+# Scale used for the area-name header.
 _HEADER_SCALE = 3
 
-# Maximum number of columns for item layout.
+# Maximum number of item columns.
 _MAX_COLS = 3
+
+# ---------------------------------------------------------------------------
+# Derived layout geometry (computed once from the constants above)
+# ---------------------------------------------------------------------------
+
+# Left edge and width of the content area (inside border + padding).
+_CONTENT_X = _BORDER + _PAD
+_CONTENT_W = WIDTH - 2 * (_BORDER + _PAD)
+
+# Top of the area-name header.
+_HEADER_Y = _BORDER + _PAD
+_HEADER_H = 8 * _HEADER_SCALE
+
+# Horizontal rule sits 4 px below the header text.
+_RULE_Y = _HEADER_Y + _HEADER_H + 4
+
+# Item list starts 6 px below the rule.
+_ITEMS_Y = _RULE_Y + 6
+
+# Bottom of the content area (above border + padding).
+_CONTENT_BOTTOM = HEIGHT - _BORDER - _PAD
 
 
 # ---------------------------------------------------------------------------
-# Internal drawing helpers
+# Low-level drawing primitives
 # ---------------------------------------------------------------------------
 
 
@@ -54,43 +89,109 @@ def _draw_text_scaled(fb: FrameBuf, text: str, x: int, y: int, color: int, scale
     """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char)."""
     bg = 1 - color
     for i, ch in enumerate(text):
-        cx = x + i * 8 * scale
-        tmp_buf = bytearray(8)
-        tmp = framebuf.FrameBuffer(tmp_buf, 8, 8, framebuf.MONO_HLSB)
-        tmp.fill(bg)
-        tmp.text(ch, 0, 0, color)
-        for py in range(8):
-            for px in range(8):
-                if tmp.pixel(px, py) == color:
-                    fb.fill_rect(cx + px * scale, y + py * scale, scale, scale, color)
+        char_x = x + i * 8 * scale
+        glyph_buf = bytearray(8)
+        glyph = framebuf.FrameBuffer(glyph_buf, 8, 8, framebuf.MONO_HLSB)
+        glyph.fill(bg)
+        glyph.text(ch, 0, 0, color)
+        for row in range(8):
+            for col in range(8):
+                if glyph.pixel(col, row) == color:
+                    fb.fill_rect(char_x + col * scale, y + row * scale, scale, scale, color)
+
+
+def _char_width(scale: int) -> int:
+    return 8 * scale
 
 
 def _text_width(text: str, scale: int) -> int:
-    return len(text) * 8 * scale
+    return len(text) * _char_width(scale)
 
 
-def _draw_centered(fb: FrameBuf, text: str, y: int, color: int, scale: int) -> None:
+def _draw_text_centered(fb: FrameBuf, text: str, y: int, color: int, scale: int) -> None:
     x = (WIDTH - _text_width(text, scale)) // 2
     _draw_text_scaled(fb, text, x, y, color, scale)
 
 
-def _draw_frame(fb: FrameBuf) -> None:
-    """Draw the 3px border and KITCHINV nameplate on *fb*."""
-    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)  # top
-    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)  # left
-    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0)  # right
+# ---------------------------------------------------------------------------
+# Screen-chrome helpers
+# ---------------------------------------------------------------------------
 
-    # Bottom border in two segments with a gap for the nameplate.
+
+def _draw_frame(fb: FrameBuf) -> None:
+    """Draw the 3 px border and KITCHINV nameplate onto *fb*."""
+    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)               # top
+    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)               # left
+    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0) # right
+
+    # Bottom border split around the nameplate.
     brand_w = _text_width(_BRAND, scale=2)
     brand_gap = brand_w + 20
     gap_x = (WIDTH - brand_gap) // 2
     fb.fill_rect(0, HEIGHT - _BORDER, gap_x, _BORDER, 0)
-    fb.fill_rect(gap_x + brand_gap, HEIGHT - _BORDER, WIDTH - (gap_x + brand_gap), _BORDER, 0)
+    fb.fill_rect(gap_x + brand_gap, HEIGHT - _BORDER, WIDTH - gap_x - brand_gap, _BORDER, 0)
 
-    # Nameplate text — vertically centred on the bottom border line.
     brand_x = (WIDTH - brand_w) // 2
     brand_y = HEIGHT - _BORDER - (8 * 2 - _BORDER) // 2 - 8
     _draw_text_scaled(fb, _BRAND, brand_x, brand_y, 0, scale=2)
+
+
+def _draw_area_header(fb: FrameBuf, area_name: str, page_indicator: str | None) -> None:
+    """Draw the area name, optional page indicator, and horizontal rule."""
+    _draw_text_scaled(fb, area_name, _CONTENT_X, _HEADER_Y, 0, _HEADER_SCALE)
+
+    if page_indicator is not None:
+        indicator_w = _text_width(page_indicator, _BODY_SCALE)
+        indicator_x = _CONTENT_X + _CONTENT_W - indicator_w
+        indicator_y = _HEADER_Y + (_HEADER_H - _CHAR_H) // 2
+        _draw_text_scaled(fb, page_indicator, indicator_x, indicator_y, 0, _BODY_SCALE)
+
+    fb.hline(_CONTENT_X, _RULE_Y, _CONTENT_W, 0)
+
+
+# ---------------------------------------------------------------------------
+# Page builders
+# ---------------------------------------------------------------------------
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    """Truncate *text* to *max_chars*, appending '>' to mark the cut."""
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1] + ">"
+
+
+def _make_status_page(area_name: str, message: str) -> FrameBuf:
+    """Render a single-page frame with *message* centred in the item area."""
+    fb = make_framebuf()
+    fb.fill(1)
+    _draw_frame(fb)
+    _draw_area_header(fb, area_name, None)
+    message_y = (_ITEMS_Y + _CONTENT_BOTTOM - _CHAR_H) // 2
+    _draw_text_centered(fb, message, message_y, 0, _BODY_SCALE)
+    return fb
+
+
+def _make_items_page(area_name: str, items: list, page: int, total_pages: int,
+                     rows_per_col: int, num_cols: int, col_w: int,
+                     max_chars_per_col: int, items_per_page: int) -> FrameBuf:
+    """Render one page of an area item list into a new FrameBuf."""
+    fb = make_framebuf()
+    fb.fill(1)
+    _draw_frame(fb)
+
+    indicator = "{} / {}".format(page + 1, total_pages) if total_pages > 1 else None
+    _draw_area_header(fb, area_name, indicator)
+
+    page_items = items[page * items_per_page : (page + 1) * items_per_page]
+    for i, item in enumerate(page_items):
+        col = i // rows_per_col
+        row = i % rows_per_col
+        item_x = _CONTENT_X + col * col_w
+        item_y = _ITEMS_Y + row * _ROW_H
+        _draw_text_scaled(fb, _truncate(item.name, max_chars_per_col), item_x, item_y, 0, _BODY_SCALE)
+
+    return fb
 
 
 # ---------------------------------------------------------------------------
@@ -98,112 +199,48 @@ def _draw_frame(fb: FrameBuf) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _truncate(text: str, max_chars: int) -> str:
-    """Truncate *text* to *max_chars*, appending '>' if shortened."""
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 1] + ">"
-
-
 class Renderer:
-    def __init__(self) -> None:
-        self._display = Display()
-
-    def show_centered(self, *lines: str) -> None:
-        """Render *lines* of text centred on screen, equally spaced as a block."""
+    def render_text_centered(self, *lines: str) -> FrameBuf:
+        """Return a FrameBuf with *lines* of text centred on screen."""
         fb = make_framebuf()
         fb.fill(1)
         _draw_frame(fb)
 
-        total_h = len(lines) * _LINE_H + (len(lines) - 1) * _LINE_GAP
-        y = (HEIGHT - total_h) // 2
-
+        block_h = len(lines) * _CHAR_H + (len(lines) - 1) * _LINE_GAP
+        y = (HEIGHT - block_h) // 2
         for line in lines:
-            _draw_centered(fb, line, y, 0, _SCALE)
-            y += _LINE_H + _LINE_GAP
+            _draw_text_centered(fb, line, y, 0, _BODY_SCALE)
+            y += _ROW_H
 
-        self._display.show(fb)
+        return fb
 
-    def render_area(self, area_name: str, items, page: int = 0) -> int:
-        """Render an inventory area onto the display.
+    def render_area(self, area: Area) -> list:
+        """Return a list of FrameBuf objects, one per page, for *area*.
 
-        Automatically selects the fewest columns needed to avoid pagination.
-        Falls back to _MAX_COLS columns with pagination if the list is too long.
-
-        *items* may be:
-          - a list of Item objects  — normal render
-          - an empty list           — shows "No items"
-          - None                    — shows "Fetch failed"
-
-        Returns the total number of pages so the caller can decide whether to
-        offer page-forward/back controls.
+        Selects the fewest columns (1–_MAX_COLS) that fit all items on one
+        page.  Falls back to _MAX_COLS columns with multiple pages when the
+        list is too long.  An empty area renders a single "No items" page.
         """
-        fb = make_framebuf()
-        fb.fill(1)
-        _draw_frame(fb)
+        if not area.items:
+            return [_make_status_page(area.name, "No items")]
 
-        x0 = _BORDER + _PAD
-        content_w = WIDTH - 2 * (_BORDER + _PAD)
-        content_bottom = HEIGHT - _BORDER - _PAD
+        rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
 
-        # --- Header row ---
-        header_h = 8 * _HEADER_SCALE
-        y_header = _BORDER + _PAD
-        _draw_text_scaled(fb, area_name, x0, y_header, 0, _HEADER_SCALE)
-
-        # --- Body start (below header + rule) ---
-        y_rule = y_header + header_h + 4
-        fb.hline(x0, y_rule, content_w, 0)
-        y_body = y_rule + 6
-
-        # --- Status screens (no item list) ---
-        if items is None:
-            _draw_centered(fb, "Fetch failed", (y_body + content_bottom - _LINE_H) // 2, 0, _SCALE)
-            self._display.show(fb)
-            return 1
-
-        if not items:
-            _draw_centered(fb, "No items", (y_body + content_bottom - _LINE_H) // 2, 0, _SCALE)
-            self._display.show(fb)
-            return 1
-
-        # --- Choose column count ---
-        avail_h = content_bottom - y_body
-        row_h = _LINE_H + _LINE_GAP
-        rows_per_col = max(1, avail_h // row_h)
-
-        num_cols = 1
+        num_cols = _MAX_COLS
         for candidate in range(1, _MAX_COLS + 1):
-            if rows_per_col * candidate >= len(items):
+            if rows_per_col * candidate >= len(area.items):
                 num_cols = candidate
                 break
-        else:
-            num_cols = _MAX_COLS
 
-        col_w = content_w // num_cols
-        max_chars = col_w // (8 * _SCALE)
+        col_w = _CONTENT_W // num_cols
+        max_chars_per_col = col_w // _char_width(_BODY_SCALE)
         items_per_page = rows_per_col * num_cols
-        total_pages = max(1, (len(items) + items_per_page - 1) // items_per_page)
+        total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
 
-        # --- Pagination indicator (only when needed) ---
-        if total_pages > 1:
-            indicator = "{} / {}".format(page + 1, total_pages)
-            ind_w = _text_width(indicator, _SCALE)
-            ind_x = x0 + content_w - ind_w
-            ind_y = y_header + (header_h - _LINE_H) // 2  # vertically centred on header
-            _draw_text_scaled(fb, indicator, ind_x, ind_y, 0, _SCALE)
-
-        # --- Item list ---
-        start = page * items_per_page
-        page_items = items[start : start + items_per_page]
-
-        for i, item in enumerate(page_items):
-            col = i // rows_per_col
-            row = i % rows_per_col
-            x = x0 + col * col_w
-            y = y_body + row * row_h
-            label = _truncate(item.name, max_chars)
-            _draw_text_scaled(fb, label, x, y, 0, _SCALE)
-
-        self._display.show(fb)
-        return total_pages
+        return [
+            _make_items_page(
+                area.name, area.items, page, total_pages,
+                rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
+            )
+            for page in range(total_pages)
+        ]

@@ -4,6 +4,7 @@ import time
 import picozero
 
 from lib import config, wifi
+from lib.display import Display
 from lib.kitchinv import KitchInv
 from lib.renderer import Renderer
 from lib.wifi import AP_IP, AP_SSID
@@ -13,22 +14,23 @@ SLEEP_DURATION_S = 6 * 60 * 60
 
 logging.basicConfig(level=logging.INFO)
 
+display = Display()
 renderer = Renderer()
 
 settings = config.load()
 while settings is None:
     logging.warning("No wifi settings found. Switch to AP mode.")
     picozero.pico_led.blink(2)
-    renderer.show_centered(
+    display.show(renderer.render_text_centered(
         "To configure this device:",
         "1. Connect to WiFi:  " + AP_SSID,
         "2. Open browser to:  http://" + AP_IP,
-    )
+    ))
     settings = wifi.run_captive_portal()
     config.save(settings)
 
 picozero.pico_led.blink(0.25)
-renderer.show_centered("Connecting to...", settings.wifi["ssid"])
+display.show(renderer.render_text_centered("Connecting to...", settings.wifi["ssid"]))
 wifi.connect(settings.wifi)
 
 picozero.pico_led.on()
