@@ -5,7 +5,6 @@ Redirects all A-record queries to a single IP address.
 
 import logging
 import socket
-from typing import Any
 
 import uasyncio
 
@@ -22,7 +21,7 @@ def _build_response(request: bytes) -> bytes:
     return header + question + answer
 
 
-async def run_server(stop_event: Any, port: int = 53) -> None:
+async def run_server(stop_event: uasyncio.Event, port: int = 53) -> None:
     """
     Async DNS server. Runs until stop_event is set.
     Uses a non-blocking socket and yields to the event loop between polls.

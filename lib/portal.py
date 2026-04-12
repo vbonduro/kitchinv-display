@@ -7,15 +7,12 @@ then returns a populated Settings object.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
 
 import uasyncio
 from microdot import Microdot
 
 from . import dns
-
-if TYPE_CHECKING:
-    from .config import Settings
+from .config import Settings
 
 # Paths iOS and Android use to detect captive portals.
 # Returning a redirect (rather than the expected 204/success body) tells the
@@ -95,14 +92,12 @@ def _portal_html(networks: list[str]) -> str:
 </html>""".format(options=options)
 
 
-def run(networks: list[str] | None = None) -> "Settings":
+def run(networks: list[str] | None = None) -> Settings:
     """
     Serve the captive portal until valid credentials are submitted.
     networks: list of SSIDs to pre-populate the SSID field.
     Returns a Settings object.
     """
-    from .config import Settings
-
     if networks is None:
         networks = []
 
@@ -112,11 +107,11 @@ def run(networks: list[str] | None = None) -> "Settings":
     result: list[Settings | None] = [None]
 
     @app.get("/")
-    async def index(request: Any) -> tuple[str, int, dict[str, str]]:
+    async def index(request) -> tuple[str, int, dict[str, str]]:  # type: ignore[no-untyped-def]
         return portal_html, 200, {"Content-Type": "text/html"}
 
     @app.post("/configure")
-    async def configure(request: Any) -> tuple[str, int, dict[str, str]]:
+    async def configure(request) -> tuple[str, int, dict[str, str]]:  # type: ignore[no-untyped-def]
         ssid = (request.form.get("ssid") or "").strip()
         password = request.form.get("password") or ""
         kitchinv_url = (request.form.get("kitchinv_url") or "").strip()
@@ -129,7 +124,7 @@ def run(networks: list[str] | None = None) -> "Settings":
         return _SUCCESS_HTML, 200, {"Content-Type": "text/html"}
 
     @app.route("/<path:path>", methods=["GET", "POST", "HEAD"])
-    async def catchall(request: Any, path: str) -> tuple[str, int, dict[str, str]]:
+    async def catchall(request, path: str) -> tuple[str, int, dict[str, str]]:  # type: ignore[no-untyped-def]
         # Explicit 302 for known OS captive-portal probe paths so the OS
         # shows a "Sign in to network" prompt. All other unknown paths also
         # redirect to the portal root.

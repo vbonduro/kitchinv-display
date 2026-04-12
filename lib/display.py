@@ -22,8 +22,6 @@ Usage
     d.sleep()                   # deep-sleep before power-off
 """
 
-from typing import Any
-
 import framebuf
 
 from lib.epd7in5 import EPD_7in5
@@ -47,7 +45,7 @@ class FrameBuf:
         self._buf = bytearray(WIDTH * HEIGHT // 8)
         self._fb = framebuf.FrameBuffer(self._buf, WIDTH, HEIGHT, framebuf.MONO_HLSB)
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
         return getattr(self._fb, name)
 
 
