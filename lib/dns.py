@@ -34,6 +34,7 @@ async def run_server(stop_event: uasyncio.Event, port: int = 53) -> None:
         while not stop_event.is_set():
             try:
                 data, addr = sock.recvfrom(512)
+                logging.info("DNS query from %s", addr[0])
                 sock.sendto(_build_response(data), addr)
             except OSError:
                 await uasyncio.sleep_ms(1)

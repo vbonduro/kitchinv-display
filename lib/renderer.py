@@ -56,7 +56,7 @@ _BRAND = "KITCHINV"
 _HEADER_SCALE = 3
 
 # Maximum number of item columns.
-_MAX_COLS = 3
+_MAX_COLS = 2
 
 # ---------------------------------------------------------------------------
 # Derived layout geometry (computed once from the constants above)

@@ -9,9 +9,11 @@ DEVICE ?= /dev/ttyACM0
 # before mounting so light sleep is active and USB stays up between cycles.
 run:
 	pkill -x mpremote 2>/dev/null || true
-	mpremote connect $(DEVICE) exec "open('features.ini','w').write(open('features/dev.ini').read())" mount . run main.py
+	cp features/dev.ini features.ini
+	mpremote connect $(DEVICE) mount . run main.py
 
 _deploy_files:
+	pkill -x mpremote 2>/dev/null || true
 	mpremote connect $(DEVICE) cp main.py :main.py
 	mpremote connect $(DEVICE) mkdir :lib 2>/dev/null || true
 	for f in lib/*.py; do mpremote connect $(DEVICE) cp $$f :$$f; done
@@ -29,9 +31,10 @@ deploy-dev: _deploy_files
 # Remove saved WiFi/server config so the device boots into captive-portal mode.
 reset-config:
 	pkill -x mpremote 2>/dev/null || true
-	mpremote connect $(DEVICE) reset
+	mpremote connect $(DEVICE) reset; sleep 2
 	mpremote connect $(DEVICE) rm :config.json 2>/dev/null || true
 	mpremote connect $(DEVICE) rm :cycle_state.bin 2>/dev/null || true
+	rm -f config.json
 	mpremote connect $(DEVICE) reset
 
 check:

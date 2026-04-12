@@ -18,7 +18,7 @@ The features.ini file is written to the device by the build system:
   make run         → features/dev.ini   (via exec before mount)
 """
 
-_FEATURES_FILE = "features.ini"
+_FEATURES_FILE = "/features.ini"
 
 _DEFAULTS: dict = {
     "sleep_mode": "deep",
