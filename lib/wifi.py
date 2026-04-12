@@ -49,6 +49,9 @@ def run_captive_portal() -> Settings:
     ap = _net.WLAN(_net.AP_IF)
     ap.config(ssid=AP_SSID, security=0)
     ap.active(True)
+    # Explicitly set DNS to AP_IP so the DHCP server advertises it to clients.
+    # Without this, iOS may use its own DNS and bypass our captive-portal redirect.
+    ap.ifconfig((AP_IP, "255.255.255.0", AP_IP, AP_IP))
     logging.info("AP active — SSID: %s", AP_SSID)
     try:
         return portal.run(networks)
