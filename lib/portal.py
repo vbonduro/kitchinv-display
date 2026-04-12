@@ -1,9 +1,11 @@
 """
 Captive portal for initial WiFi/server configuration.
 
-Serves an HTTP form via Microdot and runs a DNS redirect server so phones
-auto-detect the portal. Blocks until the form is submitted successfully,
-then returns a populated Settings object.
+Serves an HTTP form via Microdot. Blocks until the form is submitted
+successfully, then returns a populated Settings object.
+
+Users navigate to http://192.168.4.1 manually after connecting to the AP —
+the URL is shown on the e-paper display.
 """
 
 import logging
@@ -11,20 +13,7 @@ import logging
 import uasyncio
 from microdot import Microdot
 
-from . import dns
 from .config import Settings
-
-# Paths iOS and Android use to detect captive portals.
-# Returning a redirect (rather than the expected 204/success body) tells the
-# OS there is a portal and triggers the "Sign in to network" prompt.
-_PROBE_PATHS = {
-    "/generate_204",  # Android / Chrome
-    "/hotspot-detect.html",  # iOS / macOS
-    "/connecttest.txt",  # Windows
-    "/ncsi.txt",  # Windows (older)
-    "/success.txt",  # Firefox
-    "/canonical.html",  # Ubuntu
-}
 
 _SUCCESS_HTML = """\
 <!DOCTYPE html>
@@ -125,14 +114,6 @@ def run(networks: list[str] | None = None) -> Settings:
 
     @app.route("/<path:path>", methods=["GET", "POST", "HEAD"])
     async def catchall(request, path: str) -> tuple[str, int, dict[str, str]]:  # type: ignore[no-untyped-def]
-        full_path = "/" + path
-        logging.info("HTTP %s %s (Host: %s)", request.method, full_path,
-                     request.headers.get("Host", "?"))
-        # iOS, Android, and Windows probe specific paths to detect captive portals.
-        # Serving the portal HTML directly (200) is more reliable than a redirect:
-        # some iOS versions treat the redirect target as "success" and skip the popup.
-        if full_path in _PROBE_PATHS:
-            return portal_html, 200, {"Content-Type": "text/html"}
         return "", 302, {"Location": "http://192.168.4.1/"}
 
     async def _shutdown_watcher() -> None:
@@ -142,7 +123,6 @@ def run(networks: list[str] | None = None) -> Settings:
     async def _run() -> None:
         await uasyncio.gather(
             app.start_server(port=80, debug=False),
-            dns.run_server(stop_event),
             _shutdown_watcher(),
         )
 
