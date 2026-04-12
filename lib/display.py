@@ -22,6 +22,8 @@ Usage
     d.sleep()                   # deep-sleep before power-off
 """
 
+import gc
+
 import framebuf
 
 from lib.epd7in5 import EPD_7in5
@@ -52,10 +54,14 @@ class FrameBuf:
 def make_framebuf() -> "FrameBuf":
     """Return a correctly-sized FrameBuf for this display.
 
+    Runs gc.collect() before allocating to maximise available contiguous
+    memory on the Pico W's constrained heap.
+
     The caller owns it and uses it for drawing.  Pass it to
     Display.show() or Display.show_fast() when ready to render.
     Multiple framebuffers can coexist (e.g. one for status, one for inventory).
     """
+    gc.collect()
     return FrameBuf()
 
 

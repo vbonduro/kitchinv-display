@@ -38,7 +38,15 @@ logging.info("Connected to WiFi network: %s. IP=%s", settings.wifi["ssid"], wifi
 
 client = KitchInv(settings.kitchinv_url)
 inventory = client.get_inventory()
-logging.info("Inventory: %s", inventory)
+logging.info("Fetched %d areas", len(inventory.areas) if inventory else 0)
+
+if inventory and inventory.areas:
+    first_area = inventory.areas[0]
+    del inventory  # free all other areas before allocating the framebuffer
+    logging.info("Rendering area: %s (%d items)", first_area.name, len(first_area.items))
+    fb, cursor = renderer.render_area(first_area)
+    del first_area  # cursor holds the items reference; area object no longer needed
+    display.show(fb)
 
 while True:
     # TODO: replace with machine.lightsleep once query/display cycle is

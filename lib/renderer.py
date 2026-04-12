@@ -189,9 +189,44 @@ def _make_items_page(area_name: str, items: list, page: int, total_pages: int,
         row = i % rows_per_col
         item_x = _CONTENT_X + col * col_w
         item_y = _ITEMS_Y + row * _ROW_H
-        _draw_text_scaled(fb, _truncate(item.name, max_chars_per_col), item_x, item_y, 0, _BODY_SCALE)
+        label = _truncate(item.name, max_chars_per_col)
+        _draw_text_scaled(fb, label, item_x, item_y, 0, _BODY_SCALE)
 
     return fb
+
+
+# ---------------------------------------------------------------------------
+# Render cursor
+# ---------------------------------------------------------------------------
+
+
+class RenderCursor:
+    """Tracks position within a multi-page area render.
+
+    Holds the layout parameters computed once for the area so subsequent
+    pages can be rendered without recomputing or re-fetching the area.
+    The caller must keep the cursor alive between pages (it holds the item
+    list reference), but only one FrameBuf needs to exist at a time.
+
+    Check *has_next* before calling Renderer.next_page().
+    """
+
+    def __init__(self, area_name: str, items: list, page: int, total_pages: int,
+                 rows_per_col: int, num_cols: int, col_w: int,
+                 max_chars_per_col: int, items_per_page: int) -> None:
+        self.area_name = area_name
+        self.items = items
+        self.page = page
+        self.total_pages = total_pages
+        self._rows_per_col = rows_per_col
+        self._num_cols = num_cols
+        self._col_w = col_w
+        self._max_chars_per_col = max_chars_per_col
+        self._items_per_page = items_per_page
+
+    @property
+    def has_next(self) -> bool:
+        return self.page + 1 < self.total_pages
 
 
 # ---------------------------------------------------------------------------
@@ -214,15 +249,20 @@ class Renderer:
 
         return fb
 
-    def render_area(self, area: Area) -> list:
-        """Return a list of FrameBuf objects, one per page, for *area*.
+    def render_area(self, area: Area) -> tuple:
+        """Return (FrameBuf, RenderCursor | None) for page 0 of *area*.
+
+        The cursor holds the layout state needed to render subsequent pages.
+        It is None when the area has no items (single status page, no paging).
+
+        Only one FrameBuf is allocated; callers should del it before calling
+        next_page() to keep peak heap usage to a single 48 KB frame.
 
         Selects the fewest columns (1–_MAX_COLS) that fit all items on one
-        page.  Falls back to _MAX_COLS columns with multiple pages when the
-        list is too long.  An empty area renders a single "No items" page.
+        page, falling back to _MAX_COLS + pagination for very long lists.
         """
         if not area.items:
-            return [_make_status_page(area.name, "No items")]
+            return _make_status_page(area.name, "No items"), None
 
         rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
 
@@ -237,10 +277,29 @@ class Renderer:
         items_per_page = rows_per_col * num_cols
         total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
 
-        return [
-            _make_items_page(
-                area.name, area.items, page, total_pages,
-                rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
-            )
-            for page in range(total_pages)
-        ]
+        cursor = RenderCursor(
+            area.name, area.items, 0, total_pages,
+            rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
+        )
+        fb = _make_items_page(
+            area.name, area.items, 0, total_pages,
+            rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
+        )
+        return fb, cursor
+
+    def next_page(self, cursor: RenderCursor) -> tuple:
+        """Return (FrameBuf, cursor) for the next page.
+
+        Advances the cursor in-place and renders the new page.  The caller
+        should del the previous FrameBuf before calling this to avoid holding
+        two 48 KB frames simultaneously.
+
+        Caller must check cursor.has_next before calling.
+        """
+        cursor.page += 1
+        fb = _make_items_page(
+            cursor.area_name, cursor.items, cursor.page, cursor.total_pages,
+            cursor._rows_per_col, cursor._num_cols, cursor._col_w,
+            cursor._max_chars_per_col, cursor._items_per_page,
+        )
+        return fb, cursor
