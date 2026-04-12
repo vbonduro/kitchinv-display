@@ -58,8 +58,13 @@ class Area:
         return "Area(name={!r}, items={!r})".format(self.name, self.items)
 
     @classmethod
-    def from_api(cls, raw_area: dict, raw_items: list[dict]) -> "Area":
-        """Construct an Area from raw API response dicts."""
+    def from_api(cls, raw_area: dict, raw_items: list[dict] | None) -> "Area | None":
+        """Construct an Area from raw API response dicts, or None if items unavailable."""
+        if raw_items is None:
+            _log.warning(
+                "skipping area %r (id=%s): failed to fetch items", raw_area["name"], raw_area["id"]
+            )
+            return None
         items = [Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in raw_items]
         return cls(name=raw_area["name"], items=items)
 
@@ -110,16 +115,9 @@ class KitchInv:
         if raw_areas is None:
             return None
 
-        def _fetch_area(raw: dict) -> Area | None:
-            raw_items = self._get_area_inventory(raw["id"])
-            if raw_items is None:
-                _log.warning(
-                    "skipping area %r (id=%s): failed to fetch items", raw["name"], raw["id"]
-                )
-                return None
-            return Area.from_api(raw, raw_items)
-
-        areas = [a for raw in raw_areas if (a := _fetch_area(raw)) is not None]
+        areas = list(filter(None, [
+            Area.from_api(raw, self._get_area_inventory(raw["id"])) for raw in raw_areas
+        ]))
         return Inventory(areas=areas)
 
     def _get_areas(self) -> list[dict] | None:
