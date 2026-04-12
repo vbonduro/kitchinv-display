@@ -16,6 +16,7 @@ deploy:
 	mpremote connect $(DEVICE) cp main.py :main.py
 	mpremote connect $(DEVICE) mkdir :lib 2>/dev/null || true
 	for f in lib/*.py; do mpremote connect $(DEVICE) cp $$f :$$f; done
+	mpremote connect $(DEVICE) reset
 
 check:
 	uv run ruff check $(SRC)
