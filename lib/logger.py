@@ -50,6 +50,20 @@ class _FileHandler(logging.Handler):  # type: ignore[misc]
             pass
 
 
+def _boot_reason() -> str:
+    """Human-readable reset cause for the boot separator."""
+    import machine  # type: ignore[import]
+
+    cause = machine.reset_cause()
+    if cause == getattr(machine, "PWRON_RESET", 1):
+        return "power-on"
+    if cause == getattr(machine, "DEEPSLEEP_RESET", 7):
+        return "wake-from-sleep"
+    if cause == getattr(machine, "WDT_RESET", 4):
+        return "watchdog"
+    return "reset (%d)" % cause
+
+
 def setup(level: int = logging.INFO) -> None:
     """Configure logging to serial console and /log.txt."""
     logging.basicConfig(level=level)
@@ -57,6 +71,6 @@ def setup(level: int = logging.INFO) -> None:
     # Separator so each boot is easy to find in the log.
     try:
         with open(_LOG_FILE, "a") as f:
-            f.write("=== boot ===\n")
+            f.write("=== boot: %s ===\n" % _boot_reason())
     except OSError:
         pass
