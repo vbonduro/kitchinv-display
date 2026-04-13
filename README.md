@@ -39,17 +39,65 @@ Install MicroPython dependencies onto the device:
 make install
 ```
 
-### Running
+### Deploying
 
-Mount the project directory and run `main.py` directly on the device:
+There are two deploy targets depending on context:
+
+| Target | Sleep mode | Use when |
+|---|---|---|
+| `make deploy-dev` | Light (USB stays alive) | Daily dev work |
+| `make deploy` | Deep (lowest power) | Standalone / production |
+
+`make run` is an alias for `make deploy-dev`.
+
+Both targets copy all source files to device flash, write the appropriate `features.ini`, and reset the device. The device runs autonomously after reset — no host connection required.
 
 ```bash
-mpremote mount . run main.py
+make run        # deploy with dev settings and reset
+make deploy     # deploy with prod settings and reset
 ```
 
-On first boot with no saved config, the Pico will broadcast a `KitchInv-Setup` WiFi network.
-Connect to it and navigate to `http://192.168.4.1` to enter WiFi credentials and the KitchInv server URL.
-Settings are saved to `config.json` on the device and used on every subsequent boot.
+### First boot / WiFi setup
+
+On first boot with no saved config, the Pico broadcasts a `KitchInv-Setup` WiFi network.
+Connect to it and open `http://192.168.4.1` in a browser to enter WiFi credentials and the KitchInv server URL.
+Settings are saved to flash and used on every subsequent boot.
+
+To wipe WiFi/server config and re-enter setup mode:
+
+```bash
+make reset-config
+```
+
+### Viewing logs
+
+All log output is written to `/log.txt` on device flash in addition to the serial console.
+Each boot appends a `=== boot ===` separator so cycles are easy to tell apart.
+The file rotates automatically when it exceeds 8 KB (oldest half is dropped).
+
+```bash
+make log        # print /log.txt from device flash
+make clear-log  # delete /log.txt
+```
+
+### Feature flags
+
+Runtime behaviour is controlled by `features.ini` on device flash.
+The deploy targets write the appropriate file automatically — you don't normally need to edit this manually.
+
+| Flag | Values | Default |
+|---|---|---|
+| `sleep_mode` | `deep` / `light` | `deep` |
+
+- **deep** — `machine.deepsleep()`; lowest power, resets USB on wake (prod)
+- **light** — `time.sleep_ms()` + `machine.reset()`; USB stays alive, easier to connect after a cycle (dev)
+
+The source files for each build are in `features/`:
+
+```
+features/dev.ini   → sleep_mode = light
+features/prod.ini  → sleep_mode = deep
+```
 
 ## Code quality
 
