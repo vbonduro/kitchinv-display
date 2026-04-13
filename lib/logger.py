@@ -19,6 +19,7 @@ Reading logs
 """
 
 import logging
+import time
 
 import uos
 
@@ -27,6 +28,10 @@ _MAX_BYTES = 8192
 
 
 class _FileHandler(logging.Handler):  # type: ignore[misc]
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+
     def emit(self, record: object) -> None:  # type: ignore[override]
         try:
             if uos.stat(_LOG_FILE)[6] > _MAX_BYTES:
@@ -38,8 +43,9 @@ class _FileHandler(logging.Handler):  # type: ignore[misc]
             pass
         try:
             with open(_LOG_FILE, "a") as f:
-                r = record  # type: ignore[assignment]
-                f.write("%s:%s:%s\n" % (r.levelname, r.name, r.message))  # type: ignore[attr-defined]
+                t = time.localtime(record.ct)  # type: ignore[attr-defined]
+                ts = "%04d-%02d-%02d %02d:%02d:%02d" % (t[0], t[1], t[2], t[3], t[4], t[5])
+                f.write("%s %s\n" % (ts, self.format(record)))  # type: ignore[arg-type]
         except OSError:
             pass
 

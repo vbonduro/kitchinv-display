@@ -32,8 +32,12 @@ reset-config:
 	rm -f config.json
 	mpremote connect $(DEVICE) reset
 
+# NOTE: This reboots the device as a side effect.
+# mpremote must interrupt the running script (via Ctrl+C) to access the
+# filesystem, so a reset is issued afterwards to restart cleanly rather
+# than leaving the device stuck at the REPL.
 log:
-	mpremote connect $(DEVICE) exec "import uos; print(open('/log.txt').read() if 'log.txt' in [f[0] for f in uos.ilistdir('/')] else '(no log file yet)')"
+	mpremote connect $(DEVICE) exec "import uos; print(open('/log.txt').read() if 'log.txt' in [f[0] for f in uos.ilistdir('/')] else '(no log file yet)')" reset
 
 clear-log:
 	mpremote connect $(DEVICE) rm :log.txt

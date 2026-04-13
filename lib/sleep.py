@@ -19,9 +19,6 @@ class DeepSleep:
 
         deepsleep_reset = getattr(machine, "DEEPSLEEP_RESET", 7)
         cause = machine.reset_cause()  # type: ignore[attr-defined]
-        import logging
-
-        logging.info("reset_cause=%d deepsleep_reset=%d", cause, deepsleep_reset)
         return cause == deepsleep_reset
 
     def sleep(self, ms: int) -> None:
@@ -34,8 +31,11 @@ class LightSleep:
     """USB stays alive between cycles.  Use for dev builds."""
 
     def woke_from_sleep(self) -> bool:
-        """Always False — light sleep uses machine.reset(), not deepsleep."""
-        return False
+        """True when this boot follows a light-sleep cycle."""
+        import machine
+
+        deepsleep_reset = getattr(machine, "DEEPSLEEP_RESET", 7)
+        return machine.reset_cause() == deepsleep_reset  # type: ignore[attr-defined]
 
     def sleep(self, ms: int) -> None:
         import logging
@@ -44,7 +44,7 @@ class LightSleep:
 
         logging.info("light sleep %ds (USB alive)", ms // 1000)
         time.sleep_ms(ms)  # type: ignore[attr-defined]
-        machine.reset()  # type: ignore[attr-defined]  # no-return
+        machine.deepsleep(1)  # type: ignore[attr-defined]  # no-return; stamps DEEPSLEEP_RESET
 
 
 def make_sleeper(mode: str) -> "DeepSleep | LightSleep":
