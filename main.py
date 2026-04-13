@@ -25,7 +25,7 @@ import logging
 
 import picozero
 
-from lib import config, wifi
+from lib import config, logger, wifi
 from lib.display import Display
 from lib.features import get as get_feature
 from lib.kitchinv import KitchInv
@@ -39,7 +39,7 @@ CYCLE_INTERVAL_MS = 5 * 60 * 1000
 # Shorter sleep when a fetch fails — retry sooner.
 ERROR_RETRY_MS = 60 * 1000
 
-logging.basicConfig(level=logging.INFO)
+logger.setup()
 
 sleeper = make_sleeper(get_feature("sleep_mode"))
 logging.info("sleep_mode=%s", get_feature("sleep_mode"))

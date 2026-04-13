@@ -5,12 +5,7 @@ install:
 
 DEVICE ?= /dev/ttyACM0
 
-# Run from host filesystem (no deploy needed). Injects dev feature flags
-# before mounting so light sleep is active and USB stays up between cycles.
-run:
-	pkill -x mpremote 2>/dev/null || true
-	cp features/dev.ini features.ini
-	mpremote connect $(DEVICE) mount . run main.py
+run: deploy-dev
 
 _deploy_files:
 	pkill -x mpremote 2>/dev/null || true
@@ -36,6 +31,12 @@ reset-config:
 	mpremote connect $(DEVICE) rm :cycle_state.bin 2>/dev/null || true
 	rm -f config.json
 	mpremote connect $(DEVICE) reset
+
+log:
+	mpremote connect $(DEVICE) exec "print(open('/log.txt').read())"
+
+clear-log:
+	mpremote connect $(DEVICE) rm :log.txt
 
 check:
 	uv run ruff check $(SRC)
