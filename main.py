@@ -2,13 +2,14 @@
 KitchInv display — main entry point.
 
 Each run is a single wake cycle:
-  1. Read (area_index, page_index) from RTC memory
+  1. Read (area_index, page_index, areas_fp, item_count) from flash
   2. Connect WiFi
-  3. Fetch area IDs + current area's items
-  4. Render the page onto the e-paper display
-  5. Disconnect WiFi
-  6. Write the next (area_index, page_index) to RTC memory
-  7. Sleep for CYCLE_INTERVAL_MS
+  3. Fetch area IDs; reset to (0, 0) if the area list changed
+  4. Fetch current area's items; reset to (0, 0) if item count changed
+  5. Render the page onto the e-paper display
+  6. Disconnect WiFi
+  7. Write the next cycle state to flash
+  8. Sleep for CYCLE_INTERVAL_MS
 
 Sleep behaviour is controlled by the sleep_mode feature flag (features.ini):
   deep  (prod) — machine.deepsleep(); execution restarts from the top on wake.
@@ -17,7 +18,7 @@ Sleep behaviour is controlled by the sleep_mode feature flag (features.ini):
 Build targets write the appropriate features.ini to the device:
   make deploy      → features/prod.ini
   make deploy-dev  → features/dev.ini
-  make run         → features/dev.ini (injected before mount)
+  make run         → features/dev.ini (written to host dir before mount)
 """
 
 import logging
@@ -49,26 +50,59 @@ renderer = Renderer()
 # ---------------------------------------------------------------------------
 # Cycle state helpers (persisted through sleep via flash file)
 # ---------------------------------------------------------------------------
+#
+# Binary layout (6 bytes):
+#   [0]     area_index   — current area index
+#   [1]     page_index   — current page within the area
+#   [2..3]  areas_fp     — 16-bit fingerprint of the area list (order + membership)
+#   [4..5]  item_count   — 16-bit item count of the last-rendered area
+#
+# Old 2-byte state files are handled gracefully: areas_fp and item_count
+# default to 0, which differs from any real fingerprint and triggers a
+# one-time reset to (0, 0) on the first wake after upgrading.
 
-_CYCLE_STATE_FILE = "cycle_state.bin"
+_CYCLE_STATE_FILE = "/cycle_state.bin"
+
+
+def _fingerprint_areas(area_ids: list) -> int:
+    """16-bit position-sensitive fingerprint of the area list.
+
+    Sensitive to changes in order, membership, and count.
+    """
+    fp = len(area_ids)
+    for i, (area_id, _) in enumerate(area_ids):
+        fp = (fp * 31 + (i + 1) * area_id) & 0xFFFF
+    return fp
 
 
 def _read_cycle_state() -> tuple:
-    """Return (area_index, page_index) from flash, defaulting to (0, 0)."""
+    """Return (area_index, page_index, areas_fp, item_count) from flash."""
     try:
         with open(_CYCLE_STATE_FILE, "rb") as f:
-            data = f.read(2)
+            data = f.read(6)
+            if len(data) >= 6:
+                areas_fp = (data[2] << 8) | data[3]
+                item_count = (data[4] << 8) | data[5]
+                return data[0], data[1], areas_fp, item_count
             if len(data) >= 2:
-                return data[0], data[1]
+                return data[0], data[1], 0, 0
     except OSError:
         pass
-    return 0, 0
+    return 0, 0, 0, 0
 
 
-def _write_cycle_state(area_index: int, page_index: int) -> None:
-    """Persist (area_index, page_index) to flash before sleep."""
+def _write_cycle_state(area_index: int, page_index: int,
+                       areas_fp: int, item_count: int) -> None:
+    """Persist cycle state to flash before sleep."""
     with open(_CYCLE_STATE_FILE, "wb") as f:
-        f.write(bytes([area_index & 0xFF, page_index & 0xFF]))
+        f.write(bytes([
+            area_index & 0xFF,
+            page_index & 0xFF,
+            (areas_fp >> 8) & 0xFF,
+            areas_fp & 0xFF,
+            (item_count >> 8) & 0xFF,
+            item_count & 0xFF,
+        ]))
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +136,7 @@ picozero.pico_led.on()
 logging.info("Connected: %s  IP=%s", settings.wifi["ssid"], wifi.my_ip())
 
 # ---------------------------------------------------------------------------
-# Fetch
+# Fetch area list
 # ---------------------------------------------------------------------------
 
 client = KitchInv(settings.kitchinv_url)
@@ -115,12 +149,23 @@ if not area_ids:
     sleeper.sleep(ERROR_RETRY_MS)
 assert area_ids is not None
 
-area_index, page_index = _read_cycle_state()
+area_index, page_index, stored_areas_fp, stored_item_count = _read_cycle_state()
 num_areas = len(area_ids)
-area_index = area_index % num_areas  # clamp in case the area list shrank
+area_index = area_index % num_areas
 
+current_areas_fp = _fingerprint_areas(area_ids)
+if current_areas_fp != stored_areas_fp:
+    logging.info("Area list changed — resetting to area 0")
+    area_index, page_index = 0, 0
+
+# Keep area[0] in case an item-count reset is needed after we delete area_ids.
+first_area_id, first_area_name = area_ids[0]
 area_id, area_name = area_ids[area_index]
-del area_ids  # free before fetching items
+del area_ids
+
+# ---------------------------------------------------------------------------
+# Fetch current area
+# ---------------------------------------------------------------------------
 
 area = client.get_area(area_id, area_name)
 
@@ -130,6 +175,23 @@ if not area:
     wifi.disconnect()
     sleeper.sleep(ERROR_RETRY_MS)
 assert area is not None
+
+current_item_count = len(area.items)
+if current_item_count != stored_item_count:
+    logging.info("Item count changed (%d→%d) — resetting to area 0",
+                 stored_item_count, current_item_count)
+    area_index, page_index = 0, 0
+    if area_id != first_area_id:
+        del area
+        area = client.get_area(first_area_id, first_area_name)
+        if not area:
+            logging.error("Failed to fetch area %r — retrying in %ds",
+                          first_area_name, ERROR_RETRY_MS // 1000)
+            display.show(renderer.render_text_centered("Fetch failed", "Retrying in 1 min"))
+            wifi.disconnect()
+            sleeper.sleep(ERROR_RETRY_MS)
+        assert area is not None
+        current_item_count = len(area.items)
 
 # ---------------------------------------------------------------------------
 # Render and display
@@ -154,7 +216,7 @@ else:
     next_area_index = (area_index + 1) % num_areas
     next_page_index = 0
 
-_write_cycle_state(next_area_index, next_page_index)
+_write_cycle_state(next_area_index, next_page_index, current_areas_fp, current_item_count)
 logging.info(
     "Next: area %d page %d — sleeping %ds",
     next_area_index,
