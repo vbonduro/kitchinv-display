@@ -61,18 +61,23 @@ class CycleState:
         return area_ids[self._area_index]
 
     def check_items(self, item_count: int) -> bool:
-        """Detect an item-count change and reset to (0, 0).
+        """Detect an item-count change for the current area and reset to (0, 0).
 
-        Returns True when a device restart is needed — the fetched area is
-        not area 0, so the caller should save state and reboot rather than
-        render stale data.  On the next boot the cycle starts cleanly from
-        area 0.
+        item_count is stored per-area: advance() clears it to 0 whenever the
+        area index changes, so a stored value of 0 means "first visit to this
+        area — no baseline to compare against."  In that case we accept the
+        current count without resetting to avoid false positives caused by
+        comparing counts across different areas.
 
-        Returns False when the count is unchanged, or when we are already
-        at (0, 0) — the current fetch is already the correct starting point
-        so rendering can proceed without a restart.
+        Returns True when a device restart is needed — count changed from a
+        known baseline and we are not already at (0, 0).  The caller should
+        save state and reboot so the next boot starts cleanly from area 0.
+
+        Returns False when the count is unchanged, unknown (first visit), or
+        we are already at (0, 0) — rendering can proceed without a restart.
         """
-        if item_count == self._item_count:
+        if self._item_count == 0 or item_count == self._item_count:
+            self._item_count = item_count
             return False
         logging.info(
             "Item count changed (%d→%d) — resetting to area 0",
@@ -86,11 +91,19 @@ class CycleState:
         return needs_restart
 
     def advance(self, cursor: object) -> None:
-        """Move to the next page, or wrap to the next area."""
+        """Move to the next page, or wrap to the next area.
+
+        Clears _item_count when the area changes so check_items() treats the
+        first fetch of each new area as a fresh baseline rather than comparing
+        against the previous area's count.
+        """
         if cursor and cursor.has_next:  # type: ignore[union-attr,attr-defined]
             self._page_index += 1
         else:
-            self._area_index = (self._area_index + 1) % self._num_areas
+            next_area = (self._area_index + 1) % self._num_areas
+            if next_area != self._area_index:
+                self._item_count = 0
+            self._area_index = next_area
             self._page_index = 0
         logging.info("Next: area %d page %d", self._area_index, self._page_index)
 
