@@ -38,7 +38,8 @@ class _FileHandler(logging.Handler):  # type: ignore[misc]
             pass
         try:
             with open(_LOG_FILE, "a") as f:
-                f.write(self.format(record) + "\n")  # type: ignore[arg-type]
+                r = record  # type: ignore[assignment]
+                f.write("%s:%s:%s\n" % (r.levelname, r.name, r.message))  # type: ignore[attr-defined]
         except OSError:
             pass
 
@@ -46,7 +47,7 @@ class _FileHandler(logging.Handler):  # type: ignore[misc]
 def setup(level: int = logging.INFO) -> None:
     """Configure logging to serial console and /log.txt."""
     logging.basicConfig(level=level)
-    logging.root.addHandler(_FileHandler())  # type: ignore[attr-defined]
+    logging.getLogger().addHandler(_FileHandler())
     # Separator so each boot is easy to find in the log.
     try:
         with open(_LOG_FILE, "a") as f:

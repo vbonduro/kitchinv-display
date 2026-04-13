@@ -33,7 +33,7 @@ reset-config:
 	mpremote connect $(DEVICE) reset
 
 log:
-	mpremote connect $(DEVICE) exec "print(open('/log.txt').read())"
+	mpremote connect $(DEVICE) exec "import uos; print(open('/log.txt').read() if 'log.txt' in [f[0] for f in uos.ilistdir('/')] else '(no log file yet)')"
 
 clear-log:
 	mpremote connect $(DEVICE) rm :log.txt
