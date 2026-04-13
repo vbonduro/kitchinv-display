@@ -10,16 +10,23 @@ during the sleep interval so mpremote can connect at any time).
 import time
 
 
+def _woke_from_sleep() -> bool:
+    """True when this boot is not a first power-on.
+
+    PWRON_RESET is the only cause that unambiguously means first boot.
+    All other causes (deepsleep wake, watchdog, soft reset) indicate the
+    device was already running and restarted as part of a sleep cycle.
+    """
+    import machine  # type: ignore[import]
+
+    return machine.reset_cause() != machine.PWRON_RESET
+
+
 class DeepSleep:
     """Maximum battery life.  USB drops for the duration of the sleep."""
 
     def woke_from_sleep(self) -> bool:
-        """True when this boot is a wake from deep sleep (not first power-on)."""
-        import machine
-
-        deepsleep_reset = getattr(machine, "DEEPSLEEP_RESET", 7)
-        cause = machine.reset_cause()  # type: ignore[attr-defined]
-        return cause == deepsleep_reset
+        return _woke_from_sleep()
 
     def sleep(self, ms: int) -> None:
         import machine
@@ -31,11 +38,7 @@ class LightSleep:
     """USB stays alive between cycles.  Use for dev builds."""
 
     def woke_from_sleep(self) -> bool:
-        """True when this boot follows a light-sleep cycle."""
-        import machine
-
-        deepsleep_reset = getattr(machine, "DEEPSLEEP_RESET", 7)
-        return machine.reset_cause() == deepsleep_reset  # type: ignore[attr-defined]
+        return _woke_from_sleep()
 
     def sleep(self, ms: int) -> None:
         import logging

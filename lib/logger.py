@@ -57,10 +57,10 @@ def _boot_reason() -> str:
     cause = machine.reset_cause()
     if cause == getattr(machine, "PWRON_RESET", 1):
         return "power-on"
-    if cause == getattr(machine, "DEEPSLEEP_RESET", 7):
+    if cause == getattr(machine, "DEEPSLEEP_RESET", None):
         return "wake-from-sleep"
-    if cause == getattr(machine, "WDT_RESET", 4):
-        return "watchdog"
+    if cause == getattr(machine, "WDT_RESET", None):
+        return "reset"
     return "reset (%d)" % cause
 
 
