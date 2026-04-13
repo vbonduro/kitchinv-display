@@ -56,7 +56,7 @@ _BRAND = "KITCHINV"
 _HEADER_SCALE = 3
 
 # Maximum number of item columns.
-_MAX_COLS = 3
+_MAX_COLS = 2
 
 # ---------------------------------------------------------------------------
 # Derived layout geometry (computed once from the constants above)
@@ -120,9 +120,9 @@ def _draw_text_centered(fb: FrameBuf, text: str, y: int, color: int, scale: int)
 
 def _draw_frame(fb: FrameBuf) -> None:
     """Draw the 3 px border and KITCHINV nameplate onto *fb*."""
-    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)               # top
-    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)               # left
-    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0) # right
+    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)  # top
+    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)  # left
+    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0)  # right
 
     # Bottom border split around the nameplate.
     brand_w = _text_width(_BRAND, scale=2)
@@ -154,6 +154,38 @@ def _draw_area_header(fb: FrameBuf, area_name: str, page_indicator: str | None) 
 # ---------------------------------------------------------------------------
 
 
+# MicroPython's built-in font is 7-bit ASCII only.  Map common accented
+# characters to their ASCII base so they render instead of showing as '?'.
+_ACCENT_MAP = [
+    ("àáâãäå", "a"),
+    ("ÀÁÂÃÄÅ", "A"),
+    ("èéêë", "e"),
+    ("ÈÉÊË", "E"),
+    ("ìíîï", "i"),
+    ("ÌÍÎÏ", "I"),
+    ("òóôõö", "o"),
+    ("ÒÓÔÕÖ", "O"),
+    ("ùúûü", "u"),
+    ("ÙÚÛÜ", "U"),
+    ("ýÿ", "y"),
+    ("Ý", "Y"),
+    ("ç", "c"),
+    ("Ç", "C"),
+    ("ñ", "n"),
+    ("Ñ", "N"),
+    ("ß", "ss"),
+]
+
+
+def _ascii_safe(text: str) -> str:
+    """Replace accented characters with their ASCII equivalents."""
+    for accented, base in _ACCENT_MAP:
+        for ch in accented:
+            if ch in text:
+                text = text.replace(ch, base)
+    return text
+
+
 def _truncate(text: str, max_chars: int) -> str:
     """Truncate *text* to *max_chars*, appending '>' to mark the cut."""
     if len(text) <= max_chars:
@@ -166,22 +198,30 @@ def _make_status_page(area_name: str, message: str) -> FrameBuf:
     fb = make_framebuf()
     fb.fill(1)
     _draw_frame(fb)
-    _draw_area_header(fb, area_name, None)
+    _draw_area_header(fb, _ascii_safe(area_name), None)
     message_y = (_ITEMS_Y + _CONTENT_BOTTOM - _CHAR_H) // 2
     _draw_text_centered(fb, message, message_y, 0, _BODY_SCALE)
     return fb
 
 
-def _make_items_page(area_name: str, items: list, page: int, total_pages: int,
-                     rows_per_col: int, num_cols: int, col_w: int,
-                     max_chars_per_col: int, items_per_page: int) -> FrameBuf:
+def _make_items_page(
+    area_name: str,
+    items: list,
+    page: int,
+    total_pages: int,
+    rows_per_col: int,
+    num_cols: int,
+    col_w: int,
+    max_chars_per_col: int,
+    items_per_page: int,
+) -> FrameBuf:
     """Render one page of an area item list into a new FrameBuf."""
     fb = make_framebuf()
     fb.fill(1)
     _draw_frame(fb)
 
     indicator = "{} / {}".format(page + 1, total_pages) if total_pages > 1 else None
-    _draw_area_header(fb, area_name, indicator)
+    _draw_area_header(fb, _ascii_safe(area_name), indicator)
 
     page_items = items[page * items_per_page : (page + 1) * items_per_page]
     for i, item in enumerate(page_items):
@@ -189,7 +229,7 @@ def _make_items_page(area_name: str, items: list, page: int, total_pages: int,
         row = i % rows_per_col
         item_x = _CONTENT_X + col * col_w
         item_y = _ITEMS_Y + row * _ROW_H
-        label = _truncate(item.name, max_chars_per_col)
+        label = _truncate(_ascii_safe(item.name), max_chars_per_col)
         _draw_text_scaled(fb, label, item_x, item_y, 0, _BODY_SCALE)
 
     return fb
@@ -211,9 +251,18 @@ class RenderCursor:
     Check *has_next* before calling Renderer.next_page().
     """
 
-    def __init__(self, area_name: str, items: list, page: int, total_pages: int,
-                 rows_per_col: int, num_cols: int, col_w: int,
-                 max_chars_per_col: int, items_per_page: int) -> None:
+    def __init__(
+        self,
+        area_name: str,
+        items: list,
+        page: int,
+        total_pages: int,
+        rows_per_col: int,
+        num_cols: int,
+        col_w: int,
+        max_chars_per_col: int,
+        items_per_page: int,
+    ) -> None:
         self.area_name = area_name
         self.items = items
         self.page = page
@@ -249,11 +298,14 @@ class Renderer:
 
         return fb
 
-    def render_area(self, area: Area) -> tuple:
-        """Return (FrameBuf, RenderCursor | None) for page 0 of *area*.
+    def render_area(self, area: Area, page: int = 0) -> tuple:
+        """Return (FrameBuf, RenderCursor | None) for *page* of *area*.
 
         The cursor holds the layout state needed to render subsequent pages.
         It is None when the area has no items (single status page, no paging).
+
+        *page* is clamped to the valid range — safe to pass a stale index
+        from RTC memory if the area's item count has changed since last boot.
 
         Only one FrameBuf is allocated; callers should del it before calling
         next_page() to keep peak heap usage to a single 48 KB frame.
@@ -277,13 +329,29 @@ class Renderer:
         items_per_page = rows_per_col * num_cols
         total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
 
+        page = min(page, total_pages - 1)  # clamp stale index
+
         cursor = RenderCursor(
-            area.name, area.items, 0, total_pages,
-            rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
+            area.name,
+            area.items,
+            page,
+            total_pages,
+            rows_per_col,
+            num_cols,
+            col_w,
+            max_chars_per_col,
+            items_per_page,
         )
         fb = _make_items_page(
-            area.name, area.items, 0, total_pages,
-            rows_per_col, num_cols, col_w, max_chars_per_col, items_per_page,
+            area.name,
+            area.items,
+            page,
+            total_pages,
+            rows_per_col,
+            num_cols,
+            col_w,
+            max_chars_per_col,
+            items_per_page,
         )
         return fb, cursor
 
@@ -298,8 +366,14 @@ class Renderer:
         """
         cursor.page += 1
         fb = _make_items_page(
-            cursor.area_name, cursor.items, cursor.page, cursor.total_pages,
-            cursor._rows_per_col, cursor._num_cols, cursor._col_w,
-            cursor._max_chars_per_col, cursor._items_per_page,
+            cursor.area_name,
+            cursor.items,
+            cursor.page,
+            cursor.total_pages,
+            cursor._rows_per_col,
+            cursor._num_cols,
+            cursor._col_w,
+            cursor._max_chars_per_col,
+            cursor._items_per_page,
         )
         return fb, cursor
