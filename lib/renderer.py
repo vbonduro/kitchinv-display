@@ -58,6 +58,9 @@ _HEADER_SCALE = 3
 # Maximum number of item columns.
 _MAX_COLS = 2
 
+# Pixel gap between adjacent columns.
+_COL_GAP = 20
+
 # ---------------------------------------------------------------------------
 # Derived layout geometry (computed once from the constants above)
 # ---------------------------------------------------------------------------
@@ -227,7 +230,7 @@ def _make_items_page(
     for i, item in enumerate(page_items):
         col = i // rows_per_col
         row = i % rows_per_col
-        item_x = _CONTENT_X + col * col_w
+        item_x = _CONTENT_X + col * (col_w + _COL_GAP)
         item_y = _ITEMS_Y + row * _ROW_H
         label = _truncate(_ascii_safe(item.name), max_chars_per_col)
         _draw_text_scaled(fb, label, item_x, item_y, 0, _BODY_SCALE)
@@ -318,18 +321,31 @@ class Renderer:
 
         rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
 
+        # Use the minimum columns needed across ALL pages for consistent
+        # pagination, then re-evaluate for the specific page being rendered
+        # so that a sparsely-populated last page doesn't waste space.
         num_cols = _MAX_COLS
         for candidate in range(1, _MAX_COLS + 1):
             if rows_per_col * candidate >= len(area.items):
                 num_cols = candidate
                 break
 
-        col_w = _CONTENT_W // num_cols
-        max_chars_per_col = col_w // _char_width(_BODY_SCALE)
         items_per_page = rows_per_col * num_cols
         total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
 
         page = min(page, total_pages - 1)  # clamp stale index
+
+        # Recalculate columns for the actual items on this page so the last
+        # page uses the fewest columns needed rather than the global maximum.
+        page_item_count = len(area.items[page * items_per_page : (page + 1) * items_per_page])
+        render_cols = num_cols
+        for candidate in range(1, num_cols + 1):
+            if rows_per_col * candidate >= page_item_count:
+                render_cols = candidate
+                break
+
+        col_w = (_CONTENT_W - (render_cols - 1) * _COL_GAP) // render_cols
+        max_chars_per_col = col_w // _char_width(_BODY_SCALE)
 
         cursor = RenderCursor(
             area.name,
@@ -337,7 +353,7 @@ class Renderer:
             page,
             total_pages,
             rows_per_col,
-            num_cols,
+            render_cols,
             col_w,
             max_chars_per_col,
             items_per_page,
@@ -348,7 +364,7 @@ class Renderer:
             page,
             total_pages,
             rows_per_col,
-            num_cols,
+            render_cols,
             col_w,
             max_chars_per_col,
             items_per_page,
