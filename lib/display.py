@@ -74,10 +74,12 @@ class Display:
         required (e.g. first power-on).
         """
         self._epd = EPD_7in5()
+        self._fast_mode = False
 
     def clear(self) -> None:
         """Fill the panel white."""
         self._epd.Clear()
+        self._fast_mode = False
 
     def show(self, fb: FrameBuf) -> None:
         """Push *fb* to the panel using a full refresh (~2-3 s).
@@ -85,16 +87,21 @@ class Display:
         *fb* must be a FrameBuf as returned by make_framebuf().
         """
         self._epd.display(fb._buf)
+        self._fast_mode = False
 
     def show_fast(self, fb: FrameBuf) -> None:
-        """Push *fb* using the fast-refresh LUT (~0.5 s, slight ghosting).
+        """Push *fb* using the fast-refresh LUT, skipping init when already in fast mode.
 
-        Switches the panel into fast-refresh mode before sending the frame.
-        Call show() for the next full-quality update if ghosting becomes an issue.
+        init_fast() resets the panel and re-sends the LUT on every call (~300 ms
+        overhead).  Within a single active-mode session we never call show() or
+        sleep(), so the panel stays in fast mode between page turns — safe to skip.
         """
-        self._epd.init_fast()
+        if not self._fast_mode:
+            self._epd.init_fast()
+            self._fast_mode = True
         self._epd.display(fb._buf)
 
     def sleep(self) -> None:
         """Put the panel into deep sleep.  Call Display() again to wake it."""
         self._epd.sleep()
+        self._fast_mode = False

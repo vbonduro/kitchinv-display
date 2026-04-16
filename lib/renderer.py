@@ -89,18 +89,40 @@ _CONTENT_BOTTOM = HEIGHT - _BORDER - _PAD
 
 
 def _draw_text_scaled(fb: FrameBuf, text: str, x: int, y: int, color: int, scale: int) -> None:
-    """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char)."""
-    bg = 1 - color
+    """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char).
+
+    Glyph rows are read as raw bytes and horizontal runs of set pixels are
+    merged into a single fill_rect call, reducing Python→C call count by
+    roughly 2-3x versus per-pixel rendering.
+    """
+    glyph_buf = bytearray(8)
+    glyph = framebuf.FrameBuffer(glyph_buf, 8, 8, framebuf.MONO_HLSB)
+    _clear = b"\x00\x00\x00\x00\x00\x00\x00\x00"
     for i, ch in enumerate(text):
         char_x = x + i * 8 * scale
-        glyph_buf = bytearray(8)
-        glyph = framebuf.FrameBuffer(glyph_buf, 8, 8, framebuf.MONO_HLSB)
-        glyph.fill(bg)
-        glyph.text(ch, 0, 0, color)
+        glyph_buf[:] = _clear
+        glyph.text(ch, 0, 0, 1)
         for row in range(8):
-            for col in range(8):
-                if glyph.pixel(col, row) == color:
-                    fb.fill_rect(char_x + col * scale, y + row * scale, scale, scale, color)
+            b = glyph_buf[row]
+            if not b:
+                continue
+            row_y = y + row * scale
+            run_len = 0
+            run_x = char_x
+            col_x = char_x
+            mask = 0x80
+            for _ in range(8):
+                if b & mask:
+                    if not run_len:
+                        run_x = col_x
+                    run_len += 1
+                elif run_len:
+                    fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
+                    run_len = 0
+                mask >>= 1
+                col_x += scale
+            if run_len:
+                fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
 
 
 def _char_width(scale: int) -> int:
@@ -234,7 +256,6 @@ def _make_items_page(
         item_y = _ITEMS_Y + row * _ROW_H
         label = _truncate(_ascii_safe(item.name), max_chars_per_col)
         _draw_text_scaled(fb, label, item_x, item_y, 0, _BODY_SCALE)
-
     return fb
 
 

@@ -97,6 +97,43 @@ class KitchInv:
             _log.error("get_area_ids failed: %s", exc)
             return None
 
+    def get_db_hash(self) -> "str | None":
+        """Return the server-side DB hash, or None on error.
+
+        Lightweight call — use this to check whether the local cache is still
+        valid before deciding whether to fetch the full database.
+        """
+        url = self._base_url + "/api/db/hash"
+        try:
+            resp = urequests.get(url, timeout=_TIMEOUT_S)
+            return ujson.loads(resp.content)["hash"]
+        except Exception as exc:
+            _log.error("get_db_hash failed: %s", exc)
+            return None
+
+    def get_all_areas(self) -> "list | None":
+        """Fetch the full database and return [(area_id, Area), ...], or None on error.
+
+        One HTTP call replaces N individual get_area() calls.  Use after
+        get_db_hash() detects a change.
+        """
+        url = self._base_url + "/api/db"
+        try:
+            resp = urequests.get(url, timeout=_TIMEOUT_S)
+            raw = ujson.loads(resp.content)
+            resp.close()
+            result = []
+            for a in raw["areas"]:
+                items = [
+                    Item(name=i["Name"], count=_parse_count(i["Quantity"]))
+                    for i in a["items"]
+                ]
+                result.append((a["id"], Area(name=a["name"], items=items)))
+            return result
+        except Exception as exc:
+            _log.error("get_all_areas failed: %s", exc)
+            return None
+
     def get_area(self, area_id: int, area_name: str) -> "Area | None":
         """Fetch items for *area_id* and return an Area instance, or None on error.
 
