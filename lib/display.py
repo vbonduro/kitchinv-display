@@ -66,6 +66,8 @@ def make_framebuf() -> "FrameBuf":
 
 
 class Display:
+    _fast_initialized: bool = False
+
     def __init__(self) -> None:
         """Initialise the e-paper panel hardware.
 
@@ -74,12 +76,10 @@ class Display:
         required (e.g. first power-on).
         """
         self._epd = EPD_7in5()
-        self._fast_mode = False
 
     def clear(self) -> None:
         """Fill the panel white."""
         self._epd.Clear()
-        self._fast_mode = False
 
     def show(self, fb: FrameBuf) -> None:
         """Push *fb* to the panel using a full refresh (~2-3 s).
@@ -87,21 +87,19 @@ class Display:
         *fb* must be a FrameBuf as returned by make_framebuf().
         """
         self._epd.display(fb._buf)
-        self._fast_mode = False
 
     def show_fast(self, fb: FrameBuf) -> None:
-        """Push *fb* using the fast-refresh LUT, skipping init when already in fast mode.
+        """Push *fb* using the fast-refresh LUT, skipping init on subsequent calls.
 
-        init_fast() resets the panel and re-sends the LUT on every call (~300 ms
-        overhead).  Within a single active-mode session we never call show() or
-        sleep(), so the panel stays in fast mode between page turns — safe to skip.
+        init_fast() resets the panel and re-sends the LUT (~300 ms overhead).
+        The class variable ensures it runs only once per power cycle — deep sleep
+        resets all Python state, so _fast_initialized resets to False on each boot.
         """
-        if not self._fast_mode:
+        if not Display._fast_initialized:
             self._epd.init_fast()
-            self._fast_mode = True
+            Display._fast_initialized = True
         self._epd.display(fb._buf)
 
     def sleep(self) -> None:
         """Put the panel into deep sleep.  Call Display() again to wake it."""
         self._epd.sleep()
-        self._fast_mode = False

@@ -54,7 +54,7 @@ class LightSleep:
         import uasyncio as asyncio  # type: ignore[import]
         from machine import Pin
 
-        from lib.buttons import NEXT, NEXT_PIN, PREV, PREV_PIN, save_intent
+        from lib.buttons import NEXT_PIN, PREV_PIN, Direction, save_intent
 
         logging.info("light sleep %ds (USB alive)", ms // 1000)
 
@@ -80,9 +80,9 @@ class LightSleep:
                 # (handler pin reference may not be reliable across contexts).
                 time.sleep_ms(20)  # type: ignore[attr-defined]  # debounce settle
                 if prev_pin.value() == 0:
-                    save_intent(PREV)
+                    save_intent(Direction.PREV)
                 elif next_pin.value() == 0:
-                    save_intent(NEXT)
+                    save_intent(Direction.NEXT)
             except asyncio.TimeoutError:
                 pass  # normal timer expiry
 

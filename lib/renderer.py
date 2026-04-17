@@ -88,6 +88,45 @@ _CONTENT_BOTTOM = HEIGHT - _BORDER - _PAD
 # ---------------------------------------------------------------------------
 
 
+def _draw_glyph_row(fb: FrameBuf, b: int, char_x: int, row_y: int, scale: int, color: int) -> None:
+    """Draw one 8-pixel row of a glyph using run-length encoded fill_rect calls."""
+    run_len = 0
+    run_x = char_x
+    col_x = char_x
+    mask = 0x80
+    for _ in range(8):
+        if b & mask:
+            if not run_len:
+                run_x = col_x
+            run_len += 1
+        elif run_len:
+            fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
+            run_len = 0
+        mask >>= 1
+        col_x += scale
+    if run_len:
+        fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
+
+
+def _draw_char_scaled(
+    fb: FrameBuf,
+    glyph_buf: bytearray,
+    glyph: framebuf.FrameBuffer,
+    ch: str,
+    char_x: int,
+    y: int,
+    scale: int,
+    color: int,
+) -> None:
+    """Render a single character glyph into *fb* at (*char_x*, *y*)."""
+    glyph_buf[:] = b"\x00\x00\x00\x00\x00\x00\x00\x00"
+    glyph.text(ch, 0, 0, 1)
+    for row in range(8):
+        b = glyph_buf[row]
+        if b:
+            _draw_glyph_row(fb, b, char_x, y + row * scale, scale, color)
+
+
 def _draw_text_scaled(fb: FrameBuf, text: str, x: int, y: int, color: int, scale: int) -> None:
     """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char).
 
@@ -97,32 +136,8 @@ def _draw_text_scaled(fb: FrameBuf, text: str, x: int, y: int, color: int, scale
     """
     glyph_buf = bytearray(8)
     glyph = framebuf.FrameBuffer(glyph_buf, 8, 8, framebuf.MONO_HLSB)
-    _clear = b"\x00\x00\x00\x00\x00\x00\x00\x00"
     for i, ch in enumerate(text):
-        char_x = x + i * 8 * scale
-        glyph_buf[:] = _clear
-        glyph.text(ch, 0, 0, 1)
-        for row in range(8):
-            b = glyph_buf[row]
-            if not b:
-                continue
-            row_y = y + row * scale
-            run_len = 0
-            run_x = char_x
-            col_x = char_x
-            mask = 0x80
-            for _ in range(8):
-                if b & mask:
-                    if not run_len:
-                        run_x = col_x
-                    run_len += 1
-                elif run_len:
-                    fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
-                    run_len = 0
-                mask >>= 1
-                col_x += scale
-            if run_len:
-                fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
+        _draw_char_scaled(fb, glyph_buf, glyph, ch, x + i * 8 * scale, y, scale, color)
 
 
 def _char_width(scale: int) -> int:

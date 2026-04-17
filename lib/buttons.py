@@ -20,15 +20,17 @@ from machine import Pin  # type: ignore[import]
 PREV_PIN = 2
 NEXT_PIN = 3
 
-NEXT = "next"
-PREV = "prev"
+
+class Direction:
+    NEXT = "next"
+    PREV = "prev"
 
 # Written by LightSleep when a button is pressed during the sleep interval;
 # read by read_wake_button() on the following boot.
 _INTENT_FILE = "/button_intent.txt"
 
 
-def save_intent(direction: str) -> None:
+def save_intent(direction: "str") -> None:
     """Persist a button direction to flash for the next boot to consume.
 
     Called by LightSleep after detecting a button press so the intent
@@ -58,7 +60,7 @@ def read_wake_button() -> "str | None":
         with open(_INTENT_FILE) as f:
             direction = f.read().strip()
         uos.remove(_INTENT_FILE)
-        if direction in (PREV, NEXT):
+        if direction in (Direction.PREV, Direction.NEXT):
             return direction
     except OSError:
         pass
@@ -68,9 +70,9 @@ def read_wake_button() -> "str | None":
     nxt = Pin(NEXT_PIN, Pin.IN, Pin.PULL_UP)
     utime.sleep_ms(20)
     if prev.value() == 0:
-        return PREV
+        return Direction.PREV
     if nxt.value() == 0:
-        return NEXT
+        return Direction.NEXT
     return None
 
 
