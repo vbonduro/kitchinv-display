@@ -7,10 +7,10 @@ import picozero  # type: ignore[import]
 import uasyncio as asyncio  # type: ignore[import]
 from machine import Pin  # type: ignore[import]
 
-from lib import buttons, cache, cycle, wifi
+from lib import buttons, cycle, wifi
 from lib.config import Settings
 from lib.display import Display
-from lib.kitchinv import KitchInv
+from lib.kitchinvdb import KitchInvDB
 from lib.renderer import Renderer
 from lib.sleep import DeepSleep, LightSleep
 
@@ -28,6 +28,7 @@ class ActiveState:
         self._sleeper = sleeper
         self._display = Display()
         self._renderer = Renderer()
+        self._db = KitchInvDB(settings.kitchinv_url)
 
     def run(self) -> None:
         area_ids = self._ensure_cache()
@@ -99,7 +100,7 @@ class ActiveState:
 
                 # Reload state from flash — advance() already saved it above.
                 _state = cycle.load()
-                _area_ids = cache.load_area_ids()
+                _area_ids = self._db.area_ids()
                 if _area_ids is None:
                     logging.error("Cache gone mid-active-mode — exiting active loop")
                     return
@@ -132,35 +133,31 @@ class ActiveState:
 
     def _load_and_render(self, aid: int, aname: str, page: int) -> tuple:
         """Load area from cache and render it. Returns (fb, cursor) or (None, None)."""
-        a = cache.load_area(aid, aname)
-        if a is None:
+        area = self._db.load_area(aid, aname)
+        if area is None:
             logging.error("Cache miss for area %r in active mode", aname)
             return None, None
-        return self._renderer.render_area(a, page)
+        return self._renderer.render_area(area, page)
 
     def _ensure_cache(self) -> list:
         """Return area IDs from cache, fetching over WiFi if the cache is empty."""
-        area_ids = cache.load_area_ids()
-        if area_ids is not None:
+        if self._db.is_cached():
+            area_ids = self._db.area_ids()
+            assert area_ids is not None
             return area_ids
 
         logging.warning("Button wake but no cache — connecting WiFi")
         wifi.connect(self._settings.wifi)
         picozero.pico_led.on()
-        client = KitchInv(self._settings.kitchinv_url)
-        all_areas = client.get_all_areas()
+        success = self._db.pull()
         wifi.disconnect()
         picozero.pico_led.off()
 
-        if all_areas is None:
+        if not success:
             logging.error("Failed to fetch DB on cache-miss button wake")
             buttons.configure_wake()
             self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return
 
-        assert all_areas is not None
-        area_ids = [(aid, a.name) for aid, a in all_areas]
-        for aid, a in all_areas:
-            cache.save_area(aid, a)
-        del all_areas
-        cache.save_area_ids(area_ids)
+        area_ids = self._db.area_ids()
+        assert area_ids is not None
         return area_ids
