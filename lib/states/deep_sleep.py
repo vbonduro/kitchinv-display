@@ -42,28 +42,12 @@ class DeepSleepState:
         synced = db.is_synced()
 
         if synced is None:
-            logging.error(
-                "Failed to fetch DB hash — retrying in %ds", _ERROR_RETRY_MS // 1000
-            )
-            self._display.show(
-                self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min")
-            )
-            wifi.disconnect()
-            buttons.configure_wake()
-            self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return
+            self._fetch_error("Failed to fetch DB hash")
 
         if not synced:
             logging.info("DB out of sync — pulling from server")
             if not db.pull():
-                logging.error(
-                    "Failed to pull DB — retrying in %ds", _ERROR_RETRY_MS // 1000
-                )
-                self._display.show(
-                    self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min")
-                )
-                wifi.disconnect()
-                buttons.configure_wake()
-                self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return
+                self._fetch_error("Failed to pull DB")
 
         wifi.disconnect()
         picozero.pico_led.off()
@@ -85,7 +69,10 @@ class DeepSleepState:
 
         assert area is not None
 
-        if state.check_items(len(area.items)):
+        # Reset to area 0 and reboot if the item count changed since the last
+        # render — this keeps the cycle state consistent when items are added or
+        # removed from an area mid-cycle.
+        if state.has_items_changed(len(area.items)):
             state.save()
             buttons.configure_wake()
             self._sleeper.sleep(1)  # no-return
@@ -102,3 +89,13 @@ class DeepSleepState:
         logging.info("Sleeping %ds", _CYCLE_INTERVAL_MS // 1000)
         buttons.configure_wake()
         self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
+
+    def _fetch_error(self, message: str) -> None:
+        """Log *message*, show a retry notice, disconnect, and sleep for retry."""
+        logging.error("%s — retrying in %ds", message, _ERROR_RETRY_MS // 1000)
+        self._display.show(
+            self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min")
+        )
+        wifi.disconnect()
+        buttons.configure_wake()
+        self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return

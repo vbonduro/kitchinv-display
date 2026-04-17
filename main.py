@@ -3,7 +3,8 @@ KitchInv display — main entry point.
 
 Determines the boot state and delegates to the appropriate state class:
 
-  ConfigState     — no WiFi credentials: run captive portal, save, reset
+  ConfigState     — no WiFi credentials or DB not yet pulled: captive portal
+                    (if needed), WiFi connect, initial DB pull, reset
   DeepSleepState  — timer/cold wake: WiFi, optional cache refresh, full render, sleep
   ActiveState     — button wake: navigate from cache, asyncio button loop, sleep
 """
@@ -14,6 +15,7 @@ import picozero
 
 from lib import buttons, config, logger
 from lib.features import get as get_feature
+from lib.kitchinvdb import KitchInvDB
 from lib.sleep import make_sleeper
 
 logger.setup()
@@ -28,10 +30,10 @@ logging.info("sleep_mode=%s", get_feature("sleep_mode"))
 
 settings = config.load()
 
-if settings is None:
+if settings is None or not KitchInvDB.is_cached():
     from lib.states.config import ConfigState
 
-    ConfigState().run()
+    ConfigState(settings).run()
 else:
     picozero.pico_led.blink(0.25)
 

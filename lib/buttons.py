@@ -76,6 +76,58 @@ def read_wake_button() -> "str | None":
     return None
 
 
+def register_irq_handlers() -> tuple:
+    """Set up both button pins with a shared IRQ handler for active-mode use.
+
+    Registers falling-edge IRQs on both pins, waits 200 ms for spurious
+    IRQs to settle, then clears the flag so only presses that arrive after
+    this call are counted.
+
+    Returns (flag, pressed_pin, prev_pin, next_pin) where:
+      flag         — uasyncio.ThreadSafeFlag set by the handler
+      pressed_pin  — single-element list; handler writes the triggering Pin
+      prev_pin     — the PREV Pin object (for live-value reads)
+      next_pin     — the NEXT Pin object (for live-value reads)
+    """
+    import time
+
+    import uasyncio as asyncio  # type: ignore[import]
+
+    flag = asyncio.ThreadSafeFlag()
+    pressed_pin: list = [None]
+
+    def _handler(pin: object) -> None:
+        pressed_pin[0] = pin
+        flag.set()
+
+    prev_pin = Pin(PREV_PIN, Pin.IN, Pin.PULL_UP)
+    next_pin = Pin(NEXT_PIN, Pin.IN, Pin.PULL_UP)
+    prev_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
+    next_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
+
+    time.sleep_ms(200)  # type: ignore[attr-defined]  # settle spurious IRQs
+    flag.clear()  # type: ignore[attr-defined]
+    pressed_pin[0] = None
+
+    return flag, pressed_pin, prev_pin, next_pin
+
+
+def direction_from_press(
+    pin_at_irq: object, prev_pin: "Pin", next_pin: "Pin"
+) -> "str | None":
+    """Resolve a button press to a Direction, or None for spurious IRQs.
+
+    Uses *pin_at_irq* (captured at interrupt time) as the primary source,
+    falling back to a live pin read for presses that arrive while a previous
+    render is still running.
+    """
+    if pin_at_irq is prev_pin or prev_pin.value() == 0:
+        return Direction.PREV
+    if pin_at_irq is next_pin or next_pin.value() == 0:
+        return Direction.NEXT
+    return None
+
+
 def configure_wake() -> None:
     """Register both button pins as deepsleep wake sources.
 

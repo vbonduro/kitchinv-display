@@ -39,8 +39,7 @@ class KitchInvDB:
             return None
         if self._server_hash != cache.load_hash():
             return False
-        # Hash matches but area data may still be absent from flash.
-        return cache.load_area_ids() is not None
+        return True
 
     def pull(self) -> bool:
         """Fetch the full DB from the server and write it to flash.
@@ -67,9 +66,10 @@ class KitchInvDB:
         logging.info("Cache refreshed: %d areas", len(area_ids))
         return True
 
-    def is_cached(self) -> bool:
-        """True if area IDs exist on flash (cache is populated)."""
-        return cache.load_area_ids() is not None
+    @staticmethod
+    def is_cached() -> bool:
+        """True if a completed pull exists on flash (hash file present)."""
+        return cache.load_hash() is not None
 
     def area_ids(self) -> "list | None":
         """Return [(area_id, name)] from flash. None if cache is empty."""

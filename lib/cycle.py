@@ -67,7 +67,7 @@ class CycleState:
             self._areas_fp = fp
         return area_ids[self._area_index]
 
-    def check_items(self, item_count: int) -> bool:
+    def has_items_changed(self, item_count: int) -> bool:
         """Detect an item-count change for the current area and reset to (0, 0).
 
         item_count is stored per-area: advance() clears it to 0 whenever the
@@ -128,7 +128,7 @@ class CycleState:
 
         Records the current position as last shown before moving, so
         retreat() can navigate relative to what was actually on screen.
-        Clears _item_count when the area changes so check_items() treats the
+        Clears _item_count when the area changes so has_items_changed() treats the
         first fetch of each new area as a fresh baseline rather than comparing
         against the previous area's count.
         """
