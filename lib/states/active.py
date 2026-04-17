@@ -30,41 +30,45 @@ class ActiveState:
         self._db = KitchInvDB(settings.kitchinv_url)
 
     def run(self) -> None:
+        area_ids = self._require_cache()
+        picozero.pico_led.on()
+        irq_handles = self._prepare_button_loop(area_ids)
+        asyncio.run(self._active_loop(*irq_handles))
+        self._sleep()
+
+    def _require_cache(self) -> list:
+        """Return area IDs from cache, or sleep (no-return) if cache is empty."""
         area_ids = self._db.area_ids()
         if area_ids is None:
             logging.error("Active wake but cache is empty — sleeping for timer wake")
-            buttons.configure_wake()
-            self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
-
+            self._sleep()
         assert area_ids is not None
+        return area_ids
 
-        picozero.pico_led.on()
+    def _prepare_button_loop(self, area_ids: list) -> tuple:
+        """Navigate to the initial area, render, and start the button loop.
+
+        Registers IRQ handlers before show_fast so any press during the ~0.5s
+        display operation is captured. Returns the IRQ handles for the loop.
+        """
         state = cycle.load()
         area_id, area_name = _navigate(self._button, state, area_ids)
 
         fb, cursor = self._load_and_render(area_id, area_name, state.page_index)
         if fb is None:
-            buttons.configure_wake()
-            self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
+            self._sleep()
 
         assert fb is not None
-
         if cursor is not None:
             state.update_page(cursor.page)
 
-        flag, pressed_pin, prev_pin, next_pin = buttons.register_irq_handlers()
-
+        irq_handles = buttons.register_irq_handlers()
         self._display.show_fast(fb)
         del fb
 
         state.advance(cursor)
         state.save()
-
-        asyncio.run(self._active_loop(flag, pressed_pin, prev_pin, next_pin))
-
-        logging.info("Sleeping %ds", _CYCLE_INTERVAL_MS // 1000)
-        buttons.configure_wake()
-        self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
+        return irq_handles
 
     async def _active_loop(
         self,
@@ -73,6 +77,7 @@ class ActiveState:
         prev_pin: "Pin",
         next_pin: "Pin",
     ) -> None:
+        """Wait for button presses, delegating each to _handle_press."""
         while True:
             try:
                 await asyncio.wait_for(flag.wait(), _ACTIVE_TIMEOUT_MS / 1000)  # type: ignore[attr-defined]
@@ -88,29 +93,34 @@ class ActiveState:
             if direction is None:
                 continue  # spurious IRQ
 
-            logging.info("Button press in active mode: %s", direction)
-
-            _state = cycle.load()
-            _area_ids = self._db.area_ids()
-            if _area_ids is None:
-                logging.error("Cache gone mid-active-mode — exiting active loop")
+            logging.info("Button press: %s", direction)
+            if not self._handle_press(direction):
                 return
 
-            _area_id, _area_name = _navigate(direction, _state, _area_ids)
-            del _area_ids
+    def _handle_press(self, direction: str) -> bool:
+        """Navigate and render for one button press. Returns False to exit the loop."""
+        state = cycle.load()
+        area_ids = self._db.area_ids()
+        if area_ids is None:
+            logging.error("Cache gone mid-active-mode — exiting active loop")
+            return False
 
-            _fb, _cursor = self._load_and_render(_area_id, _area_name, _state.page_index)
-            if _fb is None:
-                return
+        area_id, area_name = _navigate(direction, state, area_ids)
+        del area_ids
 
-            if _cursor is not None:
-                _state.update_page(_cursor.page)
+        fb, cursor = self._load_and_render(area_id, area_name, state.page_index)
+        if fb is None:
+            return False
 
-            self._display.show_fast(_fb)
-            del _fb
+        if cursor is not None:
+            state.update_page(cursor.page)
 
-            _state.advance(_cursor)
-            _state.save()
+        self._display.show_fast(fb)
+        del fb
+
+        state.advance(cursor)
+        state.save()
+        return True
 
     def _load_and_render(self, aid: int, aname: str, page: int) -> tuple:
         """Load area from cache and render it. Returns (fb, cursor) or (None, None)."""
@@ -120,12 +130,17 @@ class ActiveState:
             return None, None
         return self._renderer.render_area(area, page)
 
+    def _sleep(self) -> None:
+        """Configure wake sources and enter deep sleep."""
+        logging.info("Sleeping %ds", _CYCLE_INTERVAL_MS // 1000)
+        buttons.configure_wake()
+        self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
+
 
 def _navigate(direction: str, state: CycleState, area_ids: list) -> tuple:
     """Apply direction to state and return (area_id, area_name).
 
-    sync_areas runs first in both branches so _num_areas is set correctly
-    before retreat() performs its modulo wrap-around.
+    sync_areas runs first so _num_areas is set before retreat() wraps around.
     """
     state.sync_areas(area_ids)
     if direction == buttons.Direction.PREV:

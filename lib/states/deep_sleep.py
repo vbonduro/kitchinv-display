@@ -6,7 +6,9 @@ import picozero  # type: ignore[import]
 
 from lib import buttons, cycle, wifi
 from lib.config import Settings
+from lib.cycle import CycleState
 from lib.display import Display
+from lib.kitchinv import Area
 from lib.kitchinvdb import KitchInvDB
 from lib.renderer import Renderer
 from lib.sleep import DeepSleep, LightSleep
@@ -23,6 +25,16 @@ class DeepSleepState:
         self._renderer = Renderer()
 
     def run(self) -> None:
+        db = self._sync_db()
+        area, state = self._load_area(db)
+        self._render_and_advance(area, state)
+
+    def _sync_db(self) -> KitchInvDB:
+        """Connect to WiFi, ensure the local DB is up to date, disconnect.
+
+        Shows a splash on first cold boot. On any network failure, shows an
+        error and retries after _ERROR_RETRY_MS (no-return).
+        """
         if not self._sleeper.woke_from_sleep():
             self._display.show(
                 self._renderer.render_text_centered(
@@ -33,9 +45,7 @@ class DeepSleepState:
         wifi.connect(self._settings.wifi)
         picozero.pico_led.on()
         logging.info(
-            "Connected: %s  IP=%s",
-            self._settings.wifi["ssid"],
-            wifi.my_ip(),
+            "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
         )
 
         db = KitchInvDB(self._settings.kitchinv_url)
@@ -51,9 +61,17 @@ class DeepSleepState:
 
         wifi.disconnect()
         picozero.pico_led.off()
+        return db
 
+    def _load_area(self, db: KitchInvDB) -> "tuple[Area, CycleState]":
+        """Determine which area to render and load it from cache.
+
+        Resets cycle state and reboots if the area's item count changed since
+        the last render — keeps pagination consistent when items are added or
+        removed mid-cycle (no-return on reset).
+        """
         area_ids = db.area_ids()
-        assert area_ids is not None  # guaranteed: synced=True or pull() succeeded
+        assert area_ids is not None  # guaranteed: synced or pull() succeeded
 
         state = cycle.load()
         area_id, area_name = state.sync_areas(area_ids)
@@ -69,14 +87,15 @@ class DeepSleepState:
 
         assert area is not None
 
-        # Reset to area 0 and reboot if the item count changed since the last
-        # render — this keeps the cycle state consistent when items are added or
-        # removed from an area mid-cycle.
         if state.has_items_changed(len(area.items)):
             state.save()
             buttons.configure_wake()
             self._sleeper.sleep(1)  # no-return
 
+        return area, state
+
+    def _render_and_advance(self, area: Area, state: CycleState) -> None:
+        """Render the area page, push to display, advance cycle state, and sleep."""
         logging.info("Rendering %r page %d (full refresh)", area.name, state.page_index)
         fb, cursor = self._renderer.render_area(area, state.page_index)
         del area
