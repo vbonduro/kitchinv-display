@@ -12,6 +12,7 @@ from lib.kitchinv import Area
 from lib.kitchinvdb import KitchInvDB
 from lib.renderer import Renderer
 from lib.sleep import DeepSleep, LightSleep
+from lib.wifi import WiFiSession
 
 _CYCLE_INTERVAL_MS = 5 * 60 * 1000
 _ERROR_RETRY_MS = 60 * 1000
@@ -25,31 +26,27 @@ class DeepSleepState:
         self._renderer = Renderer()
 
     def run(self) -> None:
-        self._connect_wifi()
-        db = self._sync_db()
-        self._disconnect_wifi()
+        self._show_connecting_splash()
+        with WiFiSession(self._settings.wifi):
+            picozero.pico_led.on()
+            logging.info(
+                "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
+            )
+            db = self._sync_db()
+        picozero.pico_led.off()
         area, state = self._load_area(db)
         cursor = self._render_and_show(area, state)
         self._advance_cycle(state, cursor)
         self._sleep()
 
-    def _connect_wifi(self) -> None:
-        """Show connecting splash on first cold boot, then connect to WiFi."""
+    def _show_connecting_splash(self) -> None:
+        """Show the connecting screen on first cold boot (not after wake-from-sleep)."""
         if not self._sleeper.woke_from_sleep():
             self._display.show(
                 self._renderer.render_text_centered(
                     "Connecting to...", self._settings.wifi["ssid"]
                 )
             )
-        wifi.connect(self._settings.wifi)
-        picozero.pico_led.on()
-        logging.info(
-            "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
-        )
-
-    def _disconnect_wifi(self) -> None:
-        wifi.disconnect()
-        picozero.pico_led.off()
 
     def _sync_db(self) -> KitchInvDB:
         """Check whether the local DB is current; pull from server if not."""
@@ -114,11 +111,14 @@ class DeepSleepState:
         self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
 
     def _fetch_error(self, message: str) -> None:
-        """Log *message*, show a retry notice, disconnect, and sleep for retry."""
+        """Log *message*, show a retry notice, and sleep for retry.
+
+        WiFi disconnect is handled by the WiFiSession context manager in run(),
+        or by machine.deepsleep() cutting the radio on the no-return sleep path.
+        """
         logging.error("%s — retrying in %ds", message, _ERROR_RETRY_MS // 1000)
         self._display.show(
             self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min")
         )
-        self._disconnect_wifi()
         buttons.configure_wake()
         self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return

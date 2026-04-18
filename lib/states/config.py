@@ -10,7 +10,7 @@ from lib.config import Settings
 from lib.display import Display
 from lib.kitchinvdb import KitchInvDB
 from lib.renderer import Renderer
-from lib.wifi import AP_IP, AP_SSID
+from lib.wifi import AP_IP, AP_SSID, WiFiSession
 
 
 class ConfigState:
@@ -53,15 +53,12 @@ class ConfigState:
                 "Connecting to...", self._settings.wifi["ssid"]
             )
         )
-        wifi.connect(self._settings.wifi)
-        picozero.pico_led.on()
-        logging.info(
-            "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
-        )
-
-        db = KitchInvDB(self._settings.kitchinv_url)
-        success = db.pull()
-        wifi.disconnect()
+        with WiFiSession(self._settings.wifi):
+            picozero.pico_led.on()
+            logging.info(
+                "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
+            )
+            success = KitchInvDB(self._settings.kitchinv_url).pull()
         picozero.pico_led.off()
 
         if not success:
