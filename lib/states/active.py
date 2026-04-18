@@ -4,9 +4,9 @@ import logging
 
 import picozero  # type: ignore[import]
 import uasyncio as asyncio  # type: ignore[import]
-from machine import Pin  # type: ignore[import]
 
 from lib import buttons, cycle
+from lib.buttons import ButtonContext
 from lib.config import Settings
 from lib.cycle import CycleState
 from lib.display import Display
@@ -32,41 +32,27 @@ class ActiveState:
         assert area_ids is not None  # guaranteed by main: is_cached() gated dispatch
 
         picozero.pico_led.on()
-        flag, pressed_pin, prev_pin, next_pin = buttons.register_irq_handlers()
+        # Register IRQs before first render to capture presses during show_fast
+        ctx = ButtonContext()
         self._turn_page(self._button, area_ids)
-        asyncio.run(self._active_loop(flag, pressed_pin, prev_pin, next_pin))
+        asyncio.run(self._active_loop(ctx, area_ids))
         self._sleep()
 
-    async def _active_loop(
-        self,
-        flag: object,
-        pressed_pin: list,
-        prev_pin: "Pin",
-        next_pin: "Pin",
-    ) -> None:
+    async def _active_loop(self, ctx: ButtonContext, area_ids: list) -> None:
         """Wait for button presses, handling each with _turn_page."""
         while True:
-            try:
-                await asyncio.wait_for(flag.wait(), _ACTIVE_TIMEOUT_MS / 1000)  # type: ignore[attr-defined]
-            except asyncio.TimeoutError:
+            direction = await ctx.wait(_ACTIVE_TIMEOUT_MS)
+            if direction is None:
                 logging.info("Active mode timeout — returning to deep sleep")
                 return
 
-            flag.clear()  # type: ignore[attr-defined]
-            pin_at_irq = pressed_pin[0]
-            pressed_pin[0] = None
-
-            direction = buttons.direction_from_press(pin_at_irq, prev_pin, next_pin)
-            if direction is None:
-                continue  # spurious IRQ
-
-            area_ids = self._db.area_ids()
-            if area_ids is None:
+            refreshed = self._db.area_ids()
+            if refreshed is None:
                 logging.error("Cache gone mid-active-mode — exiting active loop")
                 return
 
             logging.info("Button press: %s", direction)
-            if not self._turn_page(direction, area_ids):
+            if not self._turn_page(direction, refreshed):
                 return
 
     def _turn_page(self, direction: str, area_ids: list) -> bool:

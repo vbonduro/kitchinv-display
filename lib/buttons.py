@@ -77,54 +77,76 @@ def read_wake_button() -> "str | None":
     return None
 
 
-def register_irq_handlers() -> tuple:
-    """Set up both button pins with a shared IRQ handler for active-mode use.
+class ButtonContext:
+    """IRQ-driven button context for active-mode and light-sleep use.
 
-    Registers falling-edge IRQs on both pins, waits 200 ms for spurious
-    IRQs to settle, then clears the flag so only presses that arrive after
-    this call are counted.
+    Creating an instance registers falling-edge IRQs on both pins and
+    settles for 200 ms so spurious IRQs at construction time are ignored.
 
-    Returns (flag, pressed_pin, prev_pin, next_pin) where:
-      flag         — uasyncio.ThreadSafeFlag set by the handler
-      pressed_pin  — single-element list; handler writes the triggering Pin
-      prev_pin     — the PREV Pin object (for live-value reads)
-      next_pin     — the NEXT Pin object (for live-value reads)
+    Usage::
+
+        ctx = ButtonContext()
+        direction = asyncio.run(ctx.wait(30_000))
+        # direction is Direction.PREV, Direction.NEXT, or None on timeout
     """
-    import time
 
-    import uasyncio as asyncio  # type: ignore[import]
+    def __init__(self) -> None:
+        import time
 
-    flag = asyncio.ThreadSafeFlag()
-    pressed_pin: list = [None]
+        import uasyncio as asyncio  # type: ignore[import]
 
-    def _handler(pin: object) -> None:
-        pressed_pin[0] = pin
-        flag.set()
+        self._flag = asyncio.ThreadSafeFlag()
+        self._pressed_pin: list = [None]
+        self._prev_pin = Pin(PREV_PIN, Pin.IN, Pin.PULL_UP)
+        self._next_pin = Pin(NEXT_PIN, Pin.IN, Pin.PULL_UP)
 
-    prev_pin = Pin(PREV_PIN, Pin.IN, Pin.PULL_UP)
-    next_pin = Pin(NEXT_PIN, Pin.IN, Pin.PULL_UP)
-    prev_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
-    next_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
+        def _handler(pin: object) -> None:
+            self._pressed_pin[0] = pin
+            self._flag.set()
 
-    time.sleep_ms(200)  # type: ignore[attr-defined]  # settle spurious IRQs
-    flag.clear()  # type: ignore[attr-defined]
-    pressed_pin[0] = None
+        self._prev_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
+        self._next_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
 
-    return flag, pressed_pin, prev_pin, next_pin
+        time.sleep_ms(200)  # type: ignore[attr-defined]  # settle spurious IRQs
+        self._flag.clear()  # type: ignore[attr-defined]
+        self._pressed_pin[0] = None
+
+    async def wait(self, timeout_ms: int) -> "str | None":
+        """Wait up to *timeout_ms* for a button press.
+
+        Returns Direction.PREV, Direction.NEXT, or None on timeout.
+        A 20 ms debounce delay is applied after a press before reading
+        the live pin state.
+        """
+        import uasyncio as asyncio  # type: ignore[import]
+        import utime  # type: ignore[import]
+
+        try:
+            await asyncio.wait_for(self._flag.wait(), timeout_ms / 1000)  # type: ignore[attr-defined]
+        except asyncio.TimeoutError:
+            return None
+
+        pin_at_irq = self._pressed_pin[0]
+        self._flag.clear()  # type: ignore[attr-defined]
+        self._pressed_pin[0] = None
+
+        utime.sleep_ms(20)  # debounce
+
+        if pin_at_irq is self._prev_pin or self._prev_pin.value() == 0:
+            return Direction.PREV
+        if pin_at_irq is self._next_pin or self._next_pin.value() == 0:
+            return Direction.NEXT
+        return None
 
 
-def direction_from_press(pin_at_irq: object, prev_pin: "Pin", next_pin: "Pin") -> "str | None":
-    """Resolve a button press to a Direction, or None for spurious IRQs.
+async def wait_for_button(timeout_ms: int) -> "str | None":
+    """Create a ButtonContext and wait for a single button press.
 
-    Uses *pin_at_irq* (captured at interrupt time) as the primary source,
-    falling back to a live pin read for presses that arrive while a previous
-    render is still running.
+    Convenience wrapper for callers that do not need to reuse the context
+    across multiple wait calls.  Returns Direction.PREV, Direction.NEXT,
+    or None on timeout.
     """
-    if pin_at_irq is prev_pin or prev_pin.value() == 0:
-        return Direction.PREV
-    if pin_at_irq is next_pin or next_pin.value() == 0:
-        return Direction.NEXT
-    return None
+    return await ButtonContext().wait(timeout_ms)
 
 
 def configure_wake() -> None:
