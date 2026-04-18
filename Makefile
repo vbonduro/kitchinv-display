@@ -1,15 +1,16 @@
-SRC = main.py lib/ version.py
+SRC = main.py lib/
+
+VERSION ?= 0.1.0
+DEVICE  ?= /dev/ttyACM0
 
 install:
 	@while IFS= read -r pkg; do mpremote mip install $$pkg; done < requirements.txt
-
-DEVICE ?= /dev/ttyACM0
 
 run: deploy-dev
 
 _stamp_version:
 	@printf 'VERSION = "%s"\nBUILD_TS = "%s"\n' \
-		"$$(grep '^VERSION' version.py | cut -d'"' -f2)" \
+		"$(VERSION)" \
 		"$$(date -u +%Y-%m-%dT%H:%M:%SZ)" > version.py
 
 _deploy_files: _stamp_version
