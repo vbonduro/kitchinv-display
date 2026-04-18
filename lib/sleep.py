@@ -7,8 +7,6 @@ machine.reset() after the timed sleep (soft restart, USB stays alive
 during the sleep interval so mpremote can connect at any time).
 """
 
-import time
-
 
 def _woke_from_sleep() -> bool:
     """True when this boot is not a first power-on.
@@ -35,7 +33,13 @@ class DeepSleep:
 
 
 class LightSleep:
-    """USB stays alive between cycles.  Use for dev builds."""
+    """USB stays alive between cycles.  Use for dev builds.
+
+    Uses uasyncio.ThreadSafeFlag to wait for a button press or timeout
+    without entering any hardware sleep state, so USB stays connected.
+    On button press, the direction is persisted to flash so
+    read_wake_button() can recover it after the deepsleep(1) reset.
+    """
 
     def woke_from_sleep(self) -> bool:
         return _woke_from_sleep()
@@ -43,10 +47,15 @@ class LightSleep:
     def sleep(self, ms: int) -> None:
         import logging
 
-        import machine
+        import machine  # type: ignore[import]
+        import uasyncio as asyncio  # type: ignore[import]
+
+        from lib.buttons import save_intent, wait_for_button
 
         logging.info("light sleep %ds (USB alive)", ms // 1000)
-        time.sleep_ms(ms)  # type: ignore[attr-defined]
+        direction = asyncio.run(wait_for_button(ms))
+        if direction is not None:
+            save_intent(direction)
         machine.deepsleep(1)  # type: ignore[attr-defined]  # no-return; stamps DEEPSLEEP_RESET
 
 

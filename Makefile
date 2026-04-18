@@ -12,6 +12,8 @@ _deploy_files:
 	mpremote connect $(DEVICE) cp main.py :main.py
 	mpremote connect $(DEVICE) mkdir :lib 2>/dev/null || true
 	for f in lib/*.py; do mpremote connect $(DEVICE) cp $$f :$$f; done
+	mpremote connect $(DEVICE) mkdir :lib/states 2>/dev/null || true
+	for f in lib/states/*.py; do mpremote connect $(DEVICE) cp $$f :$$f; done
 
 # Copy all source files to Pico flash for standalone operation.
 deploy: _deploy_files

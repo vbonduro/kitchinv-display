@@ -120,3 +120,28 @@ def disconnect() -> None:
 def my_ip() -> str:
     """Return the current STA IP address as a string."""
     return _net.WLAN(_net.STA_IF).ifconfig()[0]
+
+
+class WiFiSession:
+    """Context manager that connects on enter and disconnects on exit.
+
+    Usage::
+
+        with WiFiSession(settings.wifi):
+            # WiFi is up; do network operations here
+            ...
+        # WiFi is down
+
+    On deep-sleep error paths the __exit__ may not be called, but
+    machine.deepsleep() cuts the radio regardless.
+    """
+
+    def __init__(self, wifi_config: "dict[str, str]") -> None:
+        self._wifi = wifi_config
+
+    def __enter__(self) -> "WiFiSession":
+        connect(self._wifi)
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        disconnect()

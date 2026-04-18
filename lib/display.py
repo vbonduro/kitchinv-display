@@ -66,6 +66,8 @@ def make_framebuf() -> "FrameBuf":
 
 
 class Display:
+    _fast_initialized: bool = False
+
     def __init__(self) -> None:
         """Initialise the e-paper panel hardware.
 
@@ -87,12 +89,15 @@ class Display:
         self._epd.display(fb._buf)
 
     def show_fast(self, fb: FrameBuf) -> None:
-        """Push *fb* using the fast-refresh LUT (~0.5 s, slight ghosting).
+        """Push *fb* using the fast-refresh LUT, skipping init on subsequent calls.
 
-        Switches the panel into fast-refresh mode before sending the frame.
-        Call show() for the next full-quality update if ghosting becomes an issue.
+        init_fast() resets the panel and re-sends the LUT (~300 ms overhead).
+        The class variable ensures it runs only once per power cycle — deep sleep
+        resets all Python state, so _fast_initialized resets to False on each boot.
         """
-        self._epd.init_fast()
+        if not Display._fast_initialized:
+            self._epd.init_fast()
+            Display._fast_initialized = True
         self._epd.display(fb._buf)
 
     def sleep(self) -> None:

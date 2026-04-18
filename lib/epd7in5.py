@@ -24,7 +24,7 @@ class EPD_7in5:
         self.height = EPD_HEIGHT
 
         self.spi = SPI(1)
-        self.spi.init(baudrate=4000_000)
+        self.spi.init(baudrate=20_000_000)
         self.dc_pin = Pin(DC_PIN, Pin.OUT)
 
         self.init()
@@ -67,7 +67,14 @@ class EPD_7in5:
     def send_data1(self, buf):
         self.digital_write(self.dc_pin, 1)
         self.digital_write(self.cs_pin, 0)
-        self.spi.write(bytearray(buf))
+        self.spi.write(bytearray(buf) if not isinstance(buf, (bytes, bytearray)) else buf)
+        self.digital_write(self.cs_pin, 1)
+
+    def _bulk_data_write(self, buf):
+        """Write a bytes/bytearray buffer to SPI with DC=1 (no copy)."""
+        self.digital_write(self.dc_pin, 1)
+        self.digital_write(self.cs_pin, 0)
+        self.spi.write(buf)
         self.digital_write(self.cs_pin, 1)
 
     def WaitUntilIdle(self):
@@ -193,17 +200,23 @@ class EPD_7in5:
         self.TurnOnDisplay()
 
     def display(self, Image):
-        high = self.height
         wide = self.width // 8 if self.width % 8 == 0 else self.width // 8 + 1
+        high = self.height
 
+        # First frame buffer: send image as-is in one bulk write.
         self.send_command(0x10)
-        for i in range(0, wide):
-            self.send_data1(Image[(i * high):((i + 1) * high)])
+        self._bulk_data_write(Image)
 
+        # Second frame buffer: send bitwise-inverted image row by row.
+        # Row-by-row avoids allocating a second 48 KB buffer while reducing
+        # Python-level calls from 48,000 (one per byte) to 480 (one per row).
         self.send_command(0x13)
+        row = bytearray(wide)
         for j in range(high):
+            base = j * wide
             for i in range(wide):
-                self.send_data(~Image[i + j * wide])
+                row[i] = ~Image[base + i] & 0xFF
+            self._bulk_data_write(row)
 
         self.TurnOnDisplay()
 

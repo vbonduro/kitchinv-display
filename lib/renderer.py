@@ -88,19 +88,56 @@ _CONTENT_BOTTOM = HEIGHT - _BORDER - _PAD
 # ---------------------------------------------------------------------------
 
 
+def _draw_glyph_row(fb: FrameBuf, b: int, char_x: int, row_y: int, scale: int, color: int) -> None:
+    """Draw one 8-pixel row of a glyph using run-length encoded fill_rect calls."""
+    run_len = 0
+    run_x = char_x
+    col_x = char_x
+    mask = 0x80
+    for _ in range(8):
+        if b & mask:
+            if not run_len:
+                run_x = col_x
+            run_len += 1
+        elif run_len:
+            fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
+            run_len = 0
+        mask >>= 1
+        col_x += scale
+    if run_len:
+        fb.fill_rect(run_x, row_y, run_len * scale, scale, color)
+
+
+def _draw_char_scaled(
+    fb: FrameBuf,
+    glyph_buf: bytearray,
+    glyph: framebuf.FrameBuffer,
+    ch: str,
+    char_x: int,
+    y: int,
+    scale: int,
+    color: int,
+) -> None:
+    """Render a single character glyph into *fb* at (*char_x*, *y*)."""
+    glyph_buf[:] = b"\x00\x00\x00\x00\x00\x00\x00\x00"
+    glyph.text(ch, 0, 0, 1)
+    for row in range(8):
+        b = glyph_buf[row]
+        if b:
+            _draw_glyph_row(fb, b, char_x, y + row * scale, scale, color)
+
+
 def _draw_text_scaled(fb: FrameBuf, text: str, x: int, y: int, color: int, scale: int) -> None:
-    """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char)."""
-    bg = 1 - color
+    """Draw *text* at (*x*, *y*) scaled by *scale* (1 = 8×8 px per char).
+
+    Glyph rows are read as raw bytes and horizontal runs of set pixels are
+    merged into a single fill_rect call, reducing Python→C call count by
+    roughly 2-3x versus per-pixel rendering.
+    """
+    glyph_buf = bytearray(8)
+    glyph = framebuf.FrameBuffer(glyph_buf, 8, 8, framebuf.MONO_HLSB)
     for i, ch in enumerate(text):
-        char_x = x + i * 8 * scale
-        glyph_buf = bytearray(8)
-        glyph = framebuf.FrameBuffer(glyph_buf, 8, 8, framebuf.MONO_HLSB)
-        glyph.fill(bg)
-        glyph.text(ch, 0, 0, color)
-        for row in range(8):
-            for col in range(8):
-                if glyph.pixel(col, row) == color:
-                    fb.fill_rect(char_x + col * scale, y + row * scale, scale, scale, color)
+        _draw_char_scaled(fb, glyph_buf, glyph, ch, x + i * 8 * scale, y, scale, color)
 
 
 def _char_width(scale: int) -> int:
@@ -234,7 +271,6 @@ def _make_items_page(
         item_y = _ITEMS_Y + row * _ROW_H
         label = _truncate(_ascii_safe(item.name), max_chars_per_col)
         _draw_text_scaled(fb, label, item_x, item_y, 0, _BODY_SCALE)
-
     return fb
 
 
@@ -282,6 +318,55 @@ class RenderCursor:
 
 
 # ---------------------------------------------------------------------------
+# Layout helpers
+# ---------------------------------------------------------------------------
+
+
+def _min_cols_for(num_items: int, rows_per_col: int, max_cols: int = _MAX_COLS) -> int:
+    """Return the fewest columns (up to *max_cols*) that fit *num_items*."""
+    for cols in range(1, max_cols + 1):
+        if rows_per_col * cols >= num_items:
+            return cols
+    return max_cols
+
+
+def _build_cursor(area: Area, page: int) -> RenderCursor:
+    """Compute layout parameters for *area* and return a RenderCursor.
+
+    Uses the minimum columns needed across ALL pages for consistent
+    pagination, then re-evaluates for the specific page so that a
+    sparsely-populated last page doesn't waste horizontal space.
+    """
+    rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
+
+    num_cols = _min_cols_for(len(area.items), rows_per_col)
+    items_per_page = rows_per_col * num_cols
+    total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
+
+    page = min(page, total_pages - 1)  # clamp stale index
+
+    page_item_count = len(area.items[page * items_per_page : (page + 1) * items_per_page])
+    render_cols = _min_cols_for(page_item_count, rows_per_col, num_cols)
+
+    col_w = (_CONTENT_W - (render_cols - 1) * _COL_GAP) // render_cols
+    max_chars_per_col = col_w // _char_width(_BODY_SCALE)
+
+    return RenderCursor(
+        area.name, area.items, page, total_pages,
+        rows_per_col, render_cols, col_w, max_chars_per_col, items_per_page,
+    )
+
+
+def _render_page(cursor: RenderCursor) -> FrameBuf:
+    """Render the current page described by *cursor* into a new FrameBuf."""
+    return _make_items_page(
+        cursor.area_name, cursor.items, cursor.page, cursor.total_pages,
+        cursor._rows_per_col, cursor._num_cols, cursor._col_w,
+        cursor._max_chars_per_col, cursor._items_per_page,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
 
@@ -312,64 +397,11 @@ class Renderer:
 
         Only one FrameBuf is allocated; callers should del it before calling
         next_page() to keep peak heap usage to a single 48 KB frame.
-
-        Selects the fewest columns (1–_MAX_COLS) that fit all items on one
-        page, falling back to _MAX_COLS + pagination for very long lists.
         """
         if not area.items:
             return _make_status_page(area.name, "No items"), None
-
-        rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
-
-        # Use the minimum columns needed across ALL pages for consistent
-        # pagination, then re-evaluate for the specific page being rendered
-        # so that a sparsely-populated last page doesn't waste space.
-        num_cols = _MAX_COLS
-        for candidate in range(1, _MAX_COLS + 1):
-            if rows_per_col * candidate >= len(area.items):
-                num_cols = candidate
-                break
-
-        items_per_page = rows_per_col * num_cols
-        total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
-
-        page = min(page, total_pages - 1)  # clamp stale index
-
-        # Recalculate columns for the actual items on this page so the last
-        # page uses the fewest columns needed rather than the global maximum.
-        page_item_count = len(area.items[page * items_per_page : (page + 1) * items_per_page])
-        render_cols = num_cols
-        for candidate in range(1, num_cols + 1):
-            if rows_per_col * candidate >= page_item_count:
-                render_cols = candidate
-                break
-
-        col_w = (_CONTENT_W - (render_cols - 1) * _COL_GAP) // render_cols
-        max_chars_per_col = col_w // _char_width(_BODY_SCALE)
-
-        cursor = RenderCursor(
-            area.name,
-            area.items,
-            page,
-            total_pages,
-            rows_per_col,
-            render_cols,
-            col_w,
-            max_chars_per_col,
-            items_per_page,
-        )
-        fb = _make_items_page(
-            area.name,
-            area.items,
-            page,
-            total_pages,
-            rows_per_col,
-            render_cols,
-            col_w,
-            max_chars_per_col,
-            items_per_page,
-        )
-        return fb, cursor
+        cursor = _build_cursor(area, page)
+        return _render_page(cursor), cursor
 
     def next_page(self, cursor: RenderCursor) -> tuple:
         """Return (FrameBuf, cursor) for the next page.
@@ -381,15 +413,4 @@ class Renderer:
         Caller must check cursor.has_next before calling.
         """
         cursor.page += 1
-        fb = _make_items_page(
-            cursor.area_name,
-            cursor.items,
-            cursor.page,
-            cursor.total_pages,
-            cursor._rows_per_col,
-            cursor._num_cols,
-            cursor._col_w,
-            cursor._max_chars_per_col,
-            cursor._items_per_page,
-        )
-        return fb, cursor
+        return _render_page(cursor), cursor
