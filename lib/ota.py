@@ -136,16 +136,6 @@ def _countdown_save(n: int) -> None:
 
 
 class OTAClient:
-    def check_if_due(self) -> None:
-        """Run an OTA check if the interval has elapsed; otherwise decrement the countdown."""
-        remaining = _countdown_load()
-        if remaining > 0:
-            _countdown_save(remaining - 1)
-            logging.info("OTA: next check in %d cycle(s)", remaining - 1)
-            return
-        _countdown_save(_OTA_INTERVAL_CYCLES)
-        self.check_and_update()
-
     def check_and_update(self) -> None:
         try:
             self._run()

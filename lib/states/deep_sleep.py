@@ -11,7 +11,7 @@ from lib.display import Display
 from lib.features import get as get_feature
 from lib.kitchinv import Area
 from lib.kitchinvdb import KitchInvDB
-from lib.ota import OTAClient
+from lib.ota import _OTA_INTERVAL_CYCLES, OTAClient, _countdown_load, _countdown_save
 from lib.renderer import Renderer
 from lib.sleep import DeepSleep, LightSleep
 from lib.wifi import WiFiSession
@@ -29,17 +29,29 @@ class DeepSleepState:
 
     def run(self) -> None:
         self._show_connecting_splash()
+        self._check_ota()
         with WiFiSession(self._settings.wifi):
             picozero.pico_led.on()
             logging.info("Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip())
-            if get_feature("ota_check") == "true":
-                OTAClient().check_if_due()
             db = self._sync_db()
         picozero.pico_led.off()
         area, state = self._load_area(db)
         cursor = self._render_and_show(area, state)
         self._advance_cycle(state, cursor)
         self._sleep()
+
+    def _check_ota(self) -> None:
+        """Check for a firmware update ~hourly, using its own WiFi session."""
+        if get_feature("ota_check") != "true":
+            return
+        remaining = _countdown_load()
+        if remaining > 0:
+            _countdown_save(remaining - 1)
+            logging.info("OTA: next check in %d cycle(s)", remaining - 1)
+            return
+        _countdown_save(_OTA_INTERVAL_CYCLES)
+        with WiFiSession(self._settings.wifi):
+            OTAClient().check_and_update()
 
     def _show_connecting_splash(self) -> None:
         """Show the connecting screen on first cold boot (not after wake-from-sleep)."""
