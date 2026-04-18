@@ -125,8 +125,7 @@ class KitchInv:
             result = []
             for a in raw["areas"]:
                 items = [
-                    Item(name=i["Name"], count=_parse_count(i["Quantity"]))
-                    for i in a["items"]
+                    Item(name=i["Name"], count=_parse_count(i["Quantity"])) for i in a["items"]
                 ]
                 result.append((a["id"], Area(name=a["name"], items=items)))
             return result

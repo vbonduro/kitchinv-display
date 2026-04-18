@@ -29,9 +29,7 @@ class DeepSleepState:
         self._show_connecting_splash()
         with WiFiSession(self._settings.wifi):
             picozero.pico_led.on()
-            logging.info(
-                "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
-            )
+            logging.info("Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip())
             db = self._sync_db()
         picozero.pico_led.off()
         area, state = self._load_area(db)
@@ -43,9 +41,7 @@ class DeepSleepState:
         """Show the connecting screen on first cold boot (not after wake-from-sleep)."""
         if not self._sleeper.woke_from_sleep():
             self._display.show(
-                self._renderer.render_text_centered(
-                    "Connecting to...", self._settings.wifi["ssid"]
-                )
+                self._renderer.render_text_centered("Connecting to...", self._settings.wifi["ssid"])
             )
 
     def _sync_db(self) -> KitchInvDB:
@@ -77,9 +73,7 @@ class DeepSleepState:
 
         area = db.load_area(area_id, area_name)
         if area is None:
-            logging.error(
-                "Cache miss for area %r after sync — skipping render", area_name
-            )
+            logging.error("Cache miss for area %r after sync — skipping render", area_name)
             buttons.configure_wake()
             self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
 
@@ -117,8 +111,6 @@ class DeepSleepState:
         or by machine.deepsleep() cutting the radio on the no-return sleep path.
         """
         logging.error("%s — retrying in %ds", message, _ERROR_RETRY_MS // 1000)
-        self._display.show(
-            self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min")
-        )
+        self._display.show(self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min"))
         buttons.configure_wake()
         self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return

@@ -19,9 +19,7 @@ _ACTIVE_TIMEOUT_MS = 30 * 1000
 
 
 class ActiveState:
-    def __init__(
-        self, settings: Settings, button: str, sleeper: "DeepSleep | LightSleep"
-    ) -> None:
+    def __init__(self, settings: Settings, button: str, sleeper: "DeepSleep | LightSleep") -> None:
         self._settings = settings
         self._button = button
         self._sleeper = sleeper

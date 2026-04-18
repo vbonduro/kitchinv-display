@@ -25,6 +25,7 @@ class Direction:
     NEXT = "next"
     PREV = "prev"
 
+
 # Written by LightSleep when a button is pressed during the sleep interval;
 # read by read_wake_button() on the following boot.
 _INTENT_FILE = "/button_intent.txt"
@@ -112,9 +113,7 @@ def register_irq_handlers() -> tuple:
     return flag, pressed_pin, prev_pin, next_pin
 
 
-def direction_from_press(
-    pin_at_irq: object, prev_pin: "Pin", next_pin: "Pin"
-) -> "str | None":
+def direction_from_press(pin_at_irq: object, prev_pin: "Pin", next_pin: "Pin") -> "str | None":
     """Resolve a button press to a Direction, or None for spurious IRQs.
 
     Uses *pin_at_irq* (captured at interrupt time) as the primary source,

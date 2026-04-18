@@ -49,20 +49,14 @@ class ConfigState:
         assert self._settings is not None
         picozero.pico_led.blink(0.25)
         self._display.show(
-            self._renderer.render_text_centered(
-                "Connecting to...", self._settings.wifi["ssid"]
-            )
+            self._renderer.render_text_centered("Connecting to...", self._settings.wifi["ssid"])
         )
         with WiFiSession(self._settings.wifi):
             picozero.pico_led.on()
-            logging.info(
-                "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
-            )
+            logging.info("Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip())
             success = KitchInvDB(self._settings.kitchinv_url).pull()
         picozero.pico_led.off()
 
         if not success:
             logging.error("Initial DB pull failed — resetting to retry")
-            self._display.show(
-                self._renderer.render_text_centered("Fetch failed", "Retrying...")
-            )
+            self._display.show(self._renderer.render_text_centered("Fetch failed", "Retrying..."))

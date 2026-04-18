@@ -74,9 +74,7 @@ class LightSleep:
         except asyncio.TimeoutError:
             return False
 
-    def _record_button_intent(
-        self, pin_at_irq: object, prev_pin: object, next_pin: object
-    ) -> None:
+    def _record_button_intent(self, pin_at_irq: object, prev_pin: object, next_pin: object) -> None:
         """Debounce and persist the pressed direction to flash for the next boot."""
         from lib.buttons import direction_from_press, save_intent
 
