@@ -11,7 +11,7 @@ from lib.display import Display
 from lib.features import get as get_feature
 from lib.kitchinv import Area
 from lib.kitchinvdb import KitchInvDB
-from lib.ota import _OTA_INTERVAL_CYCLES, OTAClient, _countdown_load, _countdown_save
+from lib.ota import OTAClient
 from lib.renderer import Renderer
 from lib.sleep import DeepSleep, LightSleep
 from lib.wifi import WiFiSession
@@ -41,15 +41,9 @@ class DeepSleepState:
         self._sleep()
 
     def _check_ota(self) -> None:
-        """Check for a firmware update ~hourly, using its own WiFi session."""
+        """Check for a firmware update on every wake, using its own WiFi session."""
         if get_feature("ota_check") != "true":
             return
-        remaining = _countdown_load()
-        if remaining > 0:
-            _countdown_save(remaining - 1)
-            logging.info("OTA: next check in %d cycle(s)", remaining - 1)
-            return
-        _countdown_save(_OTA_INTERVAL_CYCLES)
         with WiFiSession(self._settings.wifi):
             OTAClient().check_and_update()
 

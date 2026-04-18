@@ -7,9 +7,6 @@ downloads and applies the update, then resets the device.
 Files are fetched individually from raw.githubusercontent.com at the tagged
 version.  Each file is written to a temp path first and renamed only after
 the SHA-256 checksum matches — leaving existing firmware intact on failure.
-
-check_if_due() rate-limits checks to once every _OTA_INTERVAL_CYCLES deep-sleep
-cycles (~1 hour at the default 5-minute cycle interval).
 """
 
 import hashlib
@@ -24,10 +21,6 @@ _API_BASE = "https://api.github.com"
 _RAW_BASE = "https://raw.githubusercontent.com"
 _CHUNK = 4096
 _TIMEOUT = 15
-
-_OTA_INTERVAL_CYCLES = 12  # ~1 hour at 5 min/cycle
-_OTA_COUNTDOWN_FILE = "/ota_countdown.bin"
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -113,21 +106,6 @@ def _makedirs(path: str) -> None:
         os.mkdir(path)
     except OSError:
         pass
-
-
-def _countdown_load() -> int:
-    """Return cycles remaining until next OTA check (0 = due now)."""
-    try:
-        with open(_OTA_COUNTDOWN_FILE, "rb") as f:
-            data = f.read(1)
-            return data[0] if data else 0
-    except OSError:
-        return 0
-
-
-def _countdown_save(n: int) -> None:
-    with open(_OTA_COUNTDOWN_FILE, "wb") as f:
-        f.write(bytes([n & 0xFF]))
 
 
 # ---------------------------------------------------------------------------
