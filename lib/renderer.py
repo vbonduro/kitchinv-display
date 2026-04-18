@@ -27,6 +27,11 @@ import framebuf
 from lib.display import HEIGHT, WIDTH, FrameBuf, make_framebuf
 from lib.kitchinv import Area
 
+try:
+    from version import VERSION as _VERSION
+except ImportError:
+    _VERSION = "?"
+
 # ---------------------------------------------------------------------------
 # Display constants
 # ---------------------------------------------------------------------------
@@ -174,6 +179,12 @@ def _draw_frame(fb: FrameBuf) -> None:
     brand_x = (WIDTH - brand_w) // 2
     brand_y = HEIGHT - _BORDER - (8 * 2 - _BORDER) // 2 - 8
     _draw_text_scaled(fb, _BRAND, brand_x, brand_y, 0, scale=2)
+
+    ver = "v" + _VERSION
+    ver_w = _text_width(ver, scale=1)
+    ver_x = WIDTH - _BORDER - 6 - ver_w
+    ver_y = brand_y + (8 * 2 - 8) // 2  # vertically centred with brand
+    _draw_text_scaled(fb, ver, ver_x, ver_y, 0, scale=1)
 
 
 def _draw_area_header(fb: FrameBuf, area_name: str, page_indicator: str | None) -> None:

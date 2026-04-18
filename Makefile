@@ -1,4 +1,4 @@
-SRC = main.py lib/
+SRC = main.py lib/ version.py
 
 install:
 	@while IFS= read -r pkg; do mpremote mip install $$pkg; done < requirements.txt
@@ -7,9 +7,15 @@ DEVICE ?= /dev/ttyACM0
 
 run: deploy-dev
 
-_deploy_files:
+_stamp_version:
+	@printf 'VERSION = "%s"\nBUILD_TS = "%s"\n' \
+		"$$(grep '^VERSION' version.py | cut -d'"' -f2)" \
+		"$$(date -u +%Y-%m-%dT%H:%M:%SZ)" > version.py
+
+_deploy_files: _stamp_version
 	pkill -x mpremote 2>/dev/null || true
 	mpremote connect $(DEVICE) cp main.py :main.py
+	mpremote connect $(DEVICE) cp version.py :version.py
 	mpremote connect $(DEVICE) mkdir :lib 2>/dev/null || true
 	for f in lib/*.py; do mpremote connect $(DEVICE) cp $$f :$$f; done
 	mpremote connect $(DEVICE) mkdir :lib/states 2>/dev/null || true

@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Run quality checks
+        run: make check
+
+      - name: Set version and timestamp
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ts=$TS"   >> "$GITHUB_OUTPUT"
+          printf 'VERSION = "%s"\nBUILD_TS = "%s"\n' "$TAG" "$TS" > version.py
+
+      - name: Build firmware bundle
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          mkdir -p dist/lib/states
+          cp version.py main.py dist/
+          cp lib/*.py dist/lib/
+          cp lib/states/*.py dist/lib/states/
+          cp features/prod.ini dist/features.ini
+          cd dist && zip -r ../firmware.zip .
+
+      - name: Generate manifest
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          TS:  ${{ steps.meta.outputs.ts }}
+        run: |
+          python3 - <<'EOF'
+          import hashlib, json, os
+
+          tag = os.environ["TAG"]
+          ts  = os.environ["TS"]
+
+          # Map device-side path -> {source: repo-relative path, sha256: ...}
+          path_map = {}
+          for root, dirs, files in os.walk("dist"):
+              dirs.sort()
+              for f in sorted(files):
+                  abs_path = os.path.join(root, f)
+                  dest = os.path.relpath(abs_path, "dist")
+                  # features.ini was copied from features/prod.ini
+                  source = "features/prod.ini" if dest == "features.ini" else dest
+                  sha256 = hashlib.sha256(open(abs_path, "rb").read()).hexdigest()
+                  path_map[dest] = {"source": source, "sha256": sha256}
+
+          manifest = {"version": tag, "build_ts": ts, "files": path_map}
+          with open("manifest.json", "w") as fh:
+              json.dump(manifest, fh, indent=2)
+          print("manifest.json written with", len(path_map), "files")
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            firmware.zip
+            manifest.json

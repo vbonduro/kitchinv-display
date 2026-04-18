@@ -8,8 +8,10 @@ from lib import buttons, cycle, wifi
 from lib.config import Settings
 from lib.cycle import CycleState
 from lib.display import Display
+from lib.features import get as get_feature
 from lib.kitchinv import Area
 from lib.kitchinvdb import KitchInvDB
+from lib.ota import OTAClient
 from lib.renderer import Renderer
 from lib.sleep import DeepSleep, LightSleep
 from lib.wifi import WiFiSession
@@ -30,6 +32,8 @@ class DeepSleepState:
         with WiFiSession(self._settings.wifi):
             picozero.pico_led.on()
             logging.info("Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip())
+            if get_feature("ota_check") == "true":
+                OTAClient().check_and_update()
             db = self._sync_db()
         picozero.pico_led.off()
         area, state = self._load_area(db)
