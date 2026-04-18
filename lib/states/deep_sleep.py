@@ -66,10 +66,8 @@ class DeepSleepState:
         the last render — keeps pagination consistent when items are added or
         removed mid-cycle (no-return on reset).
         """
-        area_ids = db.area_ids()
-        assert area_ids is not None  # guaranteed: synced=True or pull() succeeded
         state = cycle.load()
-        area_id, area_name = state.sync_areas(area_ids)
+        area_id, area_name = state.sync_areas(db.area_ids())  # type: ignore[arg-type]
 
         area = db.load_area(area_id, area_name)
         if area is None:

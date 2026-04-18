@@ -318,6 +318,55 @@ class RenderCursor:
 
 
 # ---------------------------------------------------------------------------
+# Layout helpers
+# ---------------------------------------------------------------------------
+
+
+def _min_cols_for(num_items: int, rows_per_col: int, max_cols: int = _MAX_COLS) -> int:
+    """Return the fewest columns (up to *max_cols*) that fit *num_items*."""
+    for cols in range(1, max_cols + 1):
+        if rows_per_col * cols >= num_items:
+            return cols
+    return max_cols
+
+
+def _build_cursor(area: Area, page: int) -> RenderCursor:
+    """Compute layout parameters for *area* and return a RenderCursor.
+
+    Uses the minimum columns needed across ALL pages for consistent
+    pagination, then re-evaluates for the specific page so that a
+    sparsely-populated last page doesn't waste horizontal space.
+    """
+    rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
+
+    num_cols = _min_cols_for(len(area.items), rows_per_col)
+    items_per_page = rows_per_col * num_cols
+    total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
+
+    page = min(page, total_pages - 1)  # clamp stale index
+
+    page_item_count = len(area.items[page * items_per_page : (page + 1) * items_per_page])
+    render_cols = _min_cols_for(page_item_count, rows_per_col, num_cols)
+
+    col_w = (_CONTENT_W - (render_cols - 1) * _COL_GAP) // render_cols
+    max_chars_per_col = col_w // _char_width(_BODY_SCALE)
+
+    return RenderCursor(
+        area.name, area.items, page, total_pages,
+        rows_per_col, render_cols, col_w, max_chars_per_col, items_per_page,
+    )
+
+
+def _render_page(cursor: RenderCursor) -> FrameBuf:
+    """Render the current page described by *cursor* into a new FrameBuf."""
+    return _make_items_page(
+        cursor.area_name, cursor.items, cursor.page, cursor.total_pages,
+        cursor._rows_per_col, cursor._num_cols, cursor._col_w,
+        cursor._max_chars_per_col, cursor._items_per_page,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Renderer
 # ---------------------------------------------------------------------------
 
@@ -348,64 +397,11 @@ class Renderer:
 
         Only one FrameBuf is allocated; callers should del it before calling
         next_page() to keep peak heap usage to a single 48 KB frame.
-
-        Selects the fewest columns (1–_MAX_COLS) that fit all items on one
-        page, falling back to _MAX_COLS + pagination for very long lists.
         """
         if not area.items:
             return _make_status_page(area.name, "No items"), None
-
-        rows_per_col = max(1, (_CONTENT_BOTTOM - _ITEMS_Y) // _ROW_H)
-
-        # Use the minimum columns needed across ALL pages for consistent
-        # pagination, then re-evaluate for the specific page being rendered
-        # so that a sparsely-populated last page doesn't waste space.
-        num_cols = _MAX_COLS
-        for candidate in range(1, _MAX_COLS + 1):
-            if rows_per_col * candidate >= len(area.items):
-                num_cols = candidate
-                break
-
-        items_per_page = rows_per_col * num_cols
-        total_pages = max(1, (len(area.items) + items_per_page - 1) // items_per_page)
-
-        page = min(page, total_pages - 1)  # clamp stale index
-
-        # Recalculate columns for the actual items on this page so the last
-        # page uses the fewest columns needed rather than the global maximum.
-        page_item_count = len(area.items[page * items_per_page : (page + 1) * items_per_page])
-        render_cols = num_cols
-        for candidate in range(1, num_cols + 1):
-            if rows_per_col * candidate >= page_item_count:
-                render_cols = candidate
-                break
-
-        col_w = (_CONTENT_W - (render_cols - 1) * _COL_GAP) // render_cols
-        max_chars_per_col = col_w // _char_width(_BODY_SCALE)
-
-        cursor = RenderCursor(
-            area.name,
-            area.items,
-            page,
-            total_pages,
-            rows_per_col,
-            render_cols,
-            col_w,
-            max_chars_per_col,
-            items_per_page,
-        )
-        fb = _make_items_page(
-            area.name,
-            area.items,
-            page,
-            total_pages,
-            rows_per_col,
-            render_cols,
-            col_w,
-            max_chars_per_col,
-            items_per_page,
-        )
-        return fb, cursor
+        cursor = _build_cursor(area, page)
+        return _render_page(cursor), cursor
 
     def next_page(self, cursor: RenderCursor) -> tuple:
         """Return (FrameBuf, cursor) for the next page.
@@ -417,15 +413,4 @@ class Renderer:
         Caller must check cursor.has_next before calling.
         """
         cursor.page += 1
-        fb = _make_items_page(
-            cursor.area_name,
-            cursor.items,
-            cursor.page,
-            cursor.total_pages,
-            cursor._rows_per_col,
-            cursor._num_cols,
-            cursor._col_w,
-            cursor._max_chars_per_col,
-            cursor._items_per_page,
-        )
-        return fb, cursor
+        return _render_page(cursor), cursor

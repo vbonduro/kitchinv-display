@@ -15,15 +15,20 @@ possible — before the user releases the button — to detect which button
 triggered the wake.
 """
 
+from enum import Enum
+
 from machine import Pin  # type: ignore[import]
 
 PREV_PIN = 2
 NEXT_PIN = 3
 
 
-class Direction:
+class Direction(Enum):
     NEXT = "next"
     PREV = "prev"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 # Written by LightSleep when a button is pressed during the sleep interval;
@@ -31,7 +36,7 @@ class Direction:
 _INTENT_FILE = "/button_intent.txt"
 
 
-def save_intent(direction: "str") -> None:
+def save_intent(direction: Direction) -> None:
     """Persist a button direction to flash for the next boot to consume.
 
     Called by LightSleep after detecting a button press so the intent
@@ -39,12 +44,12 @@ def save_intent(direction: "str") -> None:
     """
     try:
         with open(_INTENT_FILE, "w") as f:
-            f.write(direction)
+            f.write(direction.value)
     except OSError:
         pass
 
 
-def read_wake_button() -> "str | None":
+def read_wake_button() -> "Direction | None":
     """Return NEXT, PREV, or None indicating which button woke the device.
 
     Checks two sources in order:
@@ -59,10 +64,12 @@ def read_wake_button() -> "str | None":
     # Check persisted intent first (LightSleep path).
     try:
         with open(_INTENT_FILE) as f:
-            direction = f.read().strip()
+            raw = f.read().strip()
         uos.remove(_INTENT_FILE)
-        if direction in (Direction.PREV, Direction.NEXT):
-            return direction
+        try:
+            return Direction(raw)
+        except ValueError:
+            pass
     except OSError:
         pass
 
@@ -111,7 +118,7 @@ class ButtonContext:
         self._flag.clear()  # type: ignore[attr-defined]
         self._pressed_pin[0] = None
 
-    async def wait(self, timeout_ms: int) -> "str | None":
+    async def wait(self, timeout_ms: int) -> "Direction | None":
         """Wait up to *timeout_ms* for a button press.
 
         Returns Direction.PREV, Direction.NEXT, or None on timeout.
@@ -139,7 +146,7 @@ class ButtonContext:
         return None
 
 
-async def wait_for_button(timeout_ms: int) -> "str | None":
+async def wait_for_button(timeout_ms: int) -> "Direction | None":
     """Create a ButtonContext and wait for a single button press.
 
     Convenience wrapper for callers that do not need to reuse the context

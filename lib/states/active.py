@@ -6,7 +6,7 @@ import picozero  # type: ignore[import]
 import uasyncio as asyncio  # type: ignore[import]
 
 from lib import buttons, cycle
-from lib.buttons import ButtonContext
+from lib.buttons import ButtonContext, Direction
 from lib.config import Settings
 from lib.cycle import CycleState
 from lib.display import Display
@@ -19,7 +19,9 @@ _ACTIVE_TIMEOUT_MS = 30 * 1000
 
 
 class ActiveState:
-    def __init__(self, settings: Settings, button: str, sleeper: "DeepSleep | LightSleep") -> None:
+    def __init__(
+        self, settings: Settings, button: Direction, sleeper: "DeepSleep | LightSleep"
+    ) -> None:
         self._settings = settings
         self._button = button
         self._sleeper = sleeper
@@ -55,7 +57,7 @@ class ActiveState:
             if not self._turn_page(direction, refreshed):
                 return
 
-    def _turn_page(self, direction: str, area_ids: list) -> bool:
+    def _turn_page(self, direction: Direction, area_ids: list) -> bool:
         """Navigate, render, and show one page. Returns False on cache miss."""
         state = cycle.load()
         area_id, area_name = _navigate(direction, state, area_ids)
@@ -89,7 +91,7 @@ class ActiveState:
         self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
 
 
-def _navigate(direction: str, state: CycleState, area_ids: list) -> tuple:
+def _navigate(direction: Direction, state: CycleState, area_ids: list) -> tuple:
     """Apply direction to state and return (area_id, area_name).
 
     sync_areas runs first so _num_areas is set before retreat() wraps around.
