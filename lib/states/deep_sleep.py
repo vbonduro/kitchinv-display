@@ -33,7 +33,7 @@ class DeepSleepState:
             picozero.pico_led.on()
             logging.info("Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip())
             if get_feature("ota_check") == "true":
-                OTAClient().check_and_update()
+                OTAClient().check_if_due()
             db = self._sync_db()
         picozero.pico_led.off()
         area, state = self._load_area(db)

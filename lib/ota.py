@@ -8,8 +8,8 @@ Files are fetched individually from raw.githubusercontent.com at the tagged
 version.  Each file is written to a temp path first and renamed only after
 the SHA-256 checksum matches — leaving existing firmware intact on failure.
 
-Safe to call on every boot: the API check is a single lightweight request
-and exits immediately when already up to date.
+check_if_due() rate-limits checks to once every _OTA_INTERVAL_CYCLES deep-sleep
+cycles (~1 hour at the default 5-minute cycle interval).
 """
 
 import hashlib
@@ -24,6 +24,14 @@ _API_BASE = "https://api.github.com"
 _RAW_BASE = "https://raw.githubusercontent.com"
 _CHUNK = 4096
 _TIMEOUT = 15
+
+_OTA_INTERVAL_CYCLES = 12  # ~1 hour at 5 min/cycle
+_OTA_COUNTDOWN_FILE = "/ota_countdown.bin"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _semver_gt(a: str, b: str) -> bool:
@@ -41,6 +49,16 @@ def _get_json(url: str) -> "dict | None":
         return ujson.loads(r.content)
     finally:
         r.close()
+
+
+def _get_latest_version() -> "str | None":
+    """Return the latest published release version string, or None on error."""
+    data = _get_json("{}/repos/{}/releases/latest".format(_API_BASE, _REPO))
+    if data is None:
+        logging.warning("OTA: could not fetch latest release")
+        return None
+    tag = data.get("tag_name", "").lstrip("v")
+    return tag if tag else None
 
 
 def _download_file(url: str, dest: str, expected_sha256: str) -> bool:
@@ -97,7 +115,37 @@ def _makedirs(path: str) -> None:
         pass
 
 
+def _countdown_load() -> int:
+    """Return cycles remaining until next OTA check (0 = due now)."""
+    try:
+        with open(_OTA_COUNTDOWN_FILE, "rb") as f:
+            data = f.read(1)
+            return data[0] if data else 0
+    except OSError:
+        return 0
+
+
+def _countdown_save(n: int) -> None:
+    with open(_OTA_COUNTDOWN_FILE, "wb") as f:
+        f.write(bytes([n & 0xFF]))
+
+
+# ---------------------------------------------------------------------------
+# OTA client
+# ---------------------------------------------------------------------------
+
+
 class OTAClient:
+    def check_if_due(self) -> None:
+        """Run an OTA check if the interval has elapsed; otherwise decrement the countdown."""
+        remaining = _countdown_load()
+        if remaining > 0:
+            _countdown_save(remaining - 1)
+            logging.info("OTA: next check in %d cycle(s)", remaining - 1)
+            return
+        _countdown_save(_OTA_INTERVAL_CYCLES)
+        self.check_and_update()
+
     def check_and_update(self) -> None:
         try:
             self._run()
@@ -111,15 +159,13 @@ class OTAClient:
         except ImportError:
             current = "0.0.0"
 
-        data = _get_json("{}/repos/{}/releases/latest".format(_API_BASE, _REPO))
-        if data is None:
-            logging.warning("OTA: could not fetch latest release")
+        latest = _get_latest_version()
+        if latest is None:
             return
 
-        latest = data.get("tag_name", "").lstrip("v")
         logging.info("OTA: current=%s latest=%s", current, latest)
 
-        if not latest or not _semver_gt(latest, current):
+        if not _semver_gt(latest, current):
             logging.info("OTA: up to date")
             return
 
