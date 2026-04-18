@@ -8,6 +8,7 @@ from lib import buttons, cycle, wifi
 from lib.config import Settings
 from lib.cycle import CycleState
 from lib.display import Display
+from lib.features import get as get_feature
 from lib.kitchinv import Area
 from lib.kitchinvdb import KitchInvDB
 from lib.renderer import Renderer
@@ -27,6 +28,7 @@ class DeepSleepState:
 
     def run(self) -> None:
         self._show_connecting_splash()
+        self._check_ota()
         with WiFiSession(self._settings.wifi):
             picozero.pico_led.on()
             logging.info("Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip())
@@ -36,6 +38,14 @@ class DeepSleepState:
         cursor = self._render_and_show(area, state)
         self._advance_cycle(state, cursor)
         self._sleep()
+
+    def _check_ota(self) -> None:
+        """Check for a firmware update on every wake, using its own WiFi session."""
+        if get_feature("ota_check") != "true":
+            return
+        from lib.ota import OTAClient  # lazy: keeps urequests off the module-load path
+        with WiFiSession(self._settings.wifi):
+            OTAClient().check_and_update()
 
     def _show_connecting_splash(self) -> None:
         """Show the connecting screen on first cold boot (not after wake-from-sleep)."""

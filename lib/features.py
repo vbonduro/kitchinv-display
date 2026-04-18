@@ -11,6 +11,9 @@ Feature flags
       deep  — machine.deepsleep(); USB drops, maximum battery life.
       light — time.sleep_ms() + machine.reset(); USB stays alive,
               mpremote can connect between cycles.
+  ota_check = true | false   (default: false)
+      true  — check GitHub Releases for firmware updates on each boot.
+      false — skip OTA check (dev default).
 
 The features.ini file is written to the device by the build system:
   make deploy      → features/prod.ini  (deep sleep)
@@ -22,6 +25,7 @@ _FEATURES_FILE = "/features.ini"
 
 _DEFAULTS: dict = {
     "sleep_mode": "deep",
+    "ota_check": "false",
 }
 
 _cache: dict | None = None

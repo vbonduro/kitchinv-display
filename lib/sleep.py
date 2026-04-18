@@ -54,8 +54,10 @@ class LightSleep:
 
         logging.info("light sleep %ds (USB alive)", ms // 1000)
         direction = asyncio.run(wait_for_button(ms))
+        logging.info("light sleep ended: direction=%s", direction)
         if direction is not None:
             save_intent(direction)
+            logging.info("intent saved: %s", direction)
         machine.deepsleep(1)  # type: ignore[attr-defined]  # no-return; stamps DEEPSLEEP_RESET
 
 
