@@ -39,7 +39,6 @@ class LightSleep:
 
     Uses uasyncio.ThreadSafeFlag to wait for a button press or timeout
     without entering any hardware sleep state, so USB stays connected.
-    The IRQ handler sets the flag; the asyncio event loop wakes on it.
     On button press, the direction is persisted to flash so
     read_wake_button() can recover it after the deepsleep(1) reset.
     """
@@ -50,44 +49,41 @@ class LightSleep:
     def sleep(self, ms: int) -> None:
         import logging
 
-        import machine
+        import machine  # type: ignore[import]
         import uasyncio as asyncio  # type: ignore[import]
-        from machine import Pin
 
-        from lib.buttons import NEXT_PIN, PREV_PIN, Direction, save_intent
+        from lib import buttons
 
         logging.info("light sleep %ds (USB alive)", ms // 1000)
-
-        flag = asyncio.ThreadSafeFlag()
-        pressed: list = [None]
-
-        def _handler(pin: object) -> None:
-            pressed[0] = pin
-            flag.set()
-
-        prev_pin = Pin(PREV_PIN, Pin.IN, Pin.PULL_UP)
-        next_pin = Pin(NEXT_PIN, Pin.IN, Pin.PULL_UP)
-        prev_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
-        next_pin.irq(trigger=Pin.IRQ_FALLING, handler=_handler)
-        time.sleep_ms(200)  # type: ignore[attr-defined]  # let spurious IRQs settle
-        flag.clear()  # type: ignore[attr-defined]
-        pressed[0] = None
-
-        async def _wait() -> None:
-            try:
-                await asyncio.wait_for(flag.wait(), ms / 1000)
-                # Button woke us — determine direction from current pin state
-                # (handler pin reference may not be reliable across contexts).
-                time.sleep_ms(20)  # type: ignore[attr-defined]  # debounce settle
-                if prev_pin.value() == 0:
-                    save_intent(Direction.PREV)
-                elif next_pin.value() == 0:
-                    save_intent(Direction.NEXT)
-            except asyncio.TimeoutError:
-                pass  # normal timer expiry
-
-        asyncio.run(_wait())
+        flag, pressed_pin, prev_pin, next_pin = buttons.register_irq_handlers()
+        woke_by_button = asyncio.run(self._wait_for_wake(flag, ms))
+        if woke_by_button:
+            self._record_button_intent(pressed_pin[0], prev_pin, next_pin)
         machine.deepsleep(1)  # type: ignore[attr-defined]  # no-return; stamps DEEPSLEEP_RESET
+
+    async def _wait_for_wake(self, flag: object, ms: int) -> bool:
+        """Wait up to *ms* milliseconds for a button press.
+
+        Returns True if a button woke us, False on timeout.
+        """
+        import uasyncio as asyncio  # type: ignore[import]
+
+        try:
+            await asyncio.wait_for(flag.wait(), ms / 1000)  # type: ignore[attr-defined]
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    def _record_button_intent(
+        self, pin_at_irq: object, prev_pin: object, next_pin: object
+    ) -> None:
+        """Debounce and persist the pressed direction to flash for the next boot."""
+        from lib.buttons import direction_from_press, save_intent
+
+        time.sleep_ms(20)  # type: ignore[attr-defined]  # debounce
+        direction = direction_from_press(pin_at_irq, prev_pin, next_pin)  # type: ignore[arg-type]
+        if direction is not None:
+            save_intent(direction)
 
 
 def make_sleeper(mode: str) -> "DeepSleep | LightSleep":

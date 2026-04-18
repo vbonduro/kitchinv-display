@@ -30,45 +30,14 @@ class ActiveState:
         self._db = KitchInvDB(settings.kitchinv_url)
 
     def run(self) -> None:
-        area_ids = self._require_cache()
-        picozero.pico_led.on()
-        irq_handles = self._prepare_button_loop(area_ids)
-        asyncio.run(self._active_loop(*irq_handles))
-        self._sleep()
-
-    def _require_cache(self) -> list:
-        """Return area IDs from cache, or sleep (no-return) if cache is empty."""
         area_ids = self._db.area_ids()
-        if area_ids is None:
-            logging.error("Active wake but cache is empty — sleeping for timer wake")
-            self._sleep()
-        assert area_ids is not None
-        return area_ids
+        assert area_ids is not None  # guaranteed by main: is_cached() gated dispatch
 
-    def _prepare_button_loop(self, area_ids: list) -> tuple:
-        """Navigate to the initial area, render, and start the button loop.
-
-        Registers IRQ handlers before show_fast so any press during the ~0.5s
-        display operation is captured. Returns the IRQ handles for the loop.
-        """
-        state = cycle.load()
-        area_id, area_name = _navigate(self._button, state, area_ids)
-
-        fb, cursor = self._load_and_render(area_id, area_name, state.page_index)
-        if fb is None:
-            self._sleep()
-
-        assert fb is not None
-        if cursor is not None:
-            state.update_page(cursor.page)
-
-        irq_handles = buttons.register_irq_handlers()
-        self._display.show_fast(fb)
-        del fb
-
-        state.advance(cursor)
-        state.save()
-        return irq_handles
+        picozero.pico_led.on()
+        flag, pressed_pin, prev_pin, next_pin = buttons.register_irq_handlers()
+        self._turn_page(self._button, area_ids)
+        asyncio.run(self._active_loop(flag, pressed_pin, prev_pin, next_pin))
+        self._sleep()
 
     async def _active_loop(
         self,
@@ -77,7 +46,7 @@ class ActiveState:
         prev_pin: "Pin",
         next_pin: "Pin",
     ) -> None:
-        """Wait for button presses, delegating each to _handle_press."""
+        """Wait for button presses, handling each with _turn_page."""
         while True:
             try:
                 await asyncio.wait_for(flag.wait(), _ACTIVE_TIMEOUT_MS / 1000)  # type: ignore[attr-defined]
@@ -93,20 +62,19 @@ class ActiveState:
             if direction is None:
                 continue  # spurious IRQ
 
-            logging.info("Button press: %s", direction)
-            if not self._handle_press(direction):
+            area_ids = self._db.area_ids()
+            if area_ids is None:
+                logging.error("Cache gone mid-active-mode — exiting active loop")
                 return
 
-    def _handle_press(self, direction: str) -> bool:
-        """Navigate and render for one button press. Returns False to exit the loop."""
-        state = cycle.load()
-        area_ids = self._db.area_ids()
-        if area_ids is None:
-            logging.error("Cache gone mid-active-mode — exiting active loop")
-            return False
+            logging.info("Button press: %s", direction)
+            if not self._turn_page(direction, area_ids):
+                return
 
+    def _turn_page(self, direction: str, area_ids: list) -> bool:
+        """Navigate, render, and show one page. Returns False on cache miss."""
+        state = cycle.load()
         area_id, area_name = _navigate(direction, state, area_ids)
-        del area_ids
 
         fb, cursor = self._load_and_render(area_id, area_name, state.page_index)
         if fb is None:

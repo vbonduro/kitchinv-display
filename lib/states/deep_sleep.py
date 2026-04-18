@@ -25,29 +25,34 @@ class DeepSleepState:
         self._renderer = Renderer()
 
     def run(self) -> None:
+        self._connect_wifi()
         db = self._sync_db()
+        self._disconnect_wifi()
         area, state = self._load_area(db)
-        self._render_and_advance(area, state)
+        cursor = self._render_and_show(area, state)
+        self._advance_cycle(state, cursor)
+        self._sleep()
 
-    def _sync_db(self) -> KitchInvDB:
-        """Connect to WiFi, ensure the local DB is up to date, disconnect.
-
-        Shows a splash on first cold boot. On any network failure, shows an
-        error and retries after _ERROR_RETRY_MS (no-return).
-        """
+    def _connect_wifi(self) -> None:
+        """Show connecting splash on first cold boot, then connect to WiFi."""
         if not self._sleeper.woke_from_sleep():
             self._display.show(
                 self._renderer.render_text_centered(
                     "Connecting to...", self._settings.wifi["ssid"]
                 )
             )
-
         wifi.connect(self._settings.wifi)
         picozero.pico_led.on()
         logging.info(
             "Connected: %s  IP=%s", self._settings.wifi["ssid"], wifi.my_ip()
         )
 
+    def _disconnect_wifi(self) -> None:
+        wifi.disconnect()
+        picozero.pico_led.off()
+
+    def _sync_db(self) -> KitchInvDB:
+        """Check whether the local DB is current; pull from server if not."""
         db = KitchInvDB(self._settings.kitchinv_url)
         synced = db.is_synced()
 
@@ -59,8 +64,6 @@ class DeepSleepState:
             if not db.pull():
                 self._fetch_error("Failed to pull DB")
 
-        wifi.disconnect()
-        picozero.pico_led.off()
         return db
 
     def _load_area(self, db: KitchInvDB) -> "tuple[Area, CycleState]":
@@ -71,11 +74,9 @@ class DeepSleepState:
         removed mid-cycle (no-return on reset).
         """
         area_ids = db.area_ids()
-        assert area_ids is not None  # guaranteed: synced or pull() succeeded
-
+        assert area_ids is not None  # guaranteed: synced=True or pull() succeeded
         state = cycle.load()
         area_id, area_name = state.sync_areas(area_ids)
-        del area_ids
 
         area = db.load_area(area_id, area_name)
         if area is None:
@@ -94,17 +95,20 @@ class DeepSleepState:
 
         return area, state
 
-    def _render_and_advance(self, area: Area, state: CycleState) -> None:
-        """Render the area page, push to display, advance cycle state, and sleep."""
+    def _render_and_show(self, area: Area, state: CycleState) -> object:
+        """Render the current page and push it to the display. Returns the cursor."""
         logging.info("Rendering %r page %d (full refresh)", area.name, state.page_index)
         fb, cursor = self._renderer.render_area(area, state.page_index)
-        del area
-
         self._display.show(fb)
-        del fb
+        return cursor
 
+    def _advance_cycle(self, state: CycleState, cursor: object) -> None:
+        """Record the rendered page in cycle state and persist to flash."""
         state.advance(cursor)
         state.save()
+
+    def _sleep(self) -> None:
+        """Configure wake sources and enter deep sleep."""
         logging.info("Sleeping %ds", _CYCLE_INTERVAL_MS // 1000)
         buttons.configure_wake()
         self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
@@ -115,6 +119,6 @@ class DeepSleepState:
         self._display.show(
             self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min")
         )
-        wifi.disconnect()
+        self._disconnect_wifi()
         buttons.configure_wake()
         self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return
