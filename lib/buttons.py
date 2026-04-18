@@ -15,20 +15,36 @@ possible — before the user releases the button — to detect which button
 triggered the wake.
 """
 
-from enum import Enum
-
 from machine import Pin  # type: ignore[import]
 
 PREV_PIN = 2
 NEXT_PIN = 3
 
 
-class Direction(Enum):
-    NEXT = "next"
-    PREV = "prev"
+class Direction:
+    NEXT: "Direction"
+    PREV: "Direction"
+
+    def __init__(self, value: str) -> None:
+        if value not in ("next", "prev"):
+            raise ValueError(value)
+        self.value = value
 
     def __str__(self) -> str:
         return self.value
+
+    def __repr__(self) -> str:
+        return "Direction(%r)" % self.value
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Direction) and self.value == other.value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+
+Direction.NEXT = Direction("next")
+Direction.PREV = Direction("prev")
 
 
 # Written by LightSleep when a button is pressed during the sleep interval;
@@ -58,14 +74,17 @@ def read_wake_button() -> "Direction | None":
        holding the button (boot from deepsleep takes ~1-2 s on RP2350;
        a brief 20 ms settle is included to let the pin stabilise).
     """
-    import uos  # type: ignore[import]
-    import utime  # type: ignore[import]
+    import logging
+
+    import uos  # type: ignore[import]  # noqa: E402
+    import utime  # type: ignore[import]  # noqa: E402
 
     # Check persisted intent first (LightSleep path).
     try:
         with open(_INTENT_FILE) as f:
             raw = f.read().strip()
         uos.remove(_INTENT_FILE)
+        logging.info("read_wake_button: intent file found: %r", raw)
         try:
             return Direction(raw)
         except ValueError:
@@ -77,6 +96,7 @@ def read_wake_button() -> "Direction | None":
     prev = Pin(PREV_PIN, Pin.IN, Pin.PULL_UP)
     nxt = Pin(NEXT_PIN, Pin.IN, Pin.PULL_UP)
     utime.sleep_ms(20)
+    logging.info("read_wake_button: prev=%d next=%d", prev.value(), nxt.value())
     if prev.value() == 0:
         return Direction.PREV
     if nxt.value() == 0:

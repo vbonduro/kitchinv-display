@@ -19,6 +19,7 @@ Reading logs
 """
 
 import logging
+import sys
 import time
 
 import uos
@@ -64,10 +65,29 @@ def _boot_reason() -> str:
     return "reset (%d)" % cause
 
 
+def _install_excepthook() -> None:
+    def _hook(exc_type: type, exc_value: BaseException, exc_tb: object) -> None:
+        import io
+        buf = io.StringIO()
+        sys.print_exception(exc_value, buf)  # type: ignore[attr-defined]
+        try:
+            with open(_LOG_FILE, "a") as f:
+                f.write("=== UNCAUGHT EXCEPTION ===\n")
+                f.write(buf.getvalue())
+        except OSError:
+            pass
+
+    try:
+        sys.excepthook = _hook  # type: ignore[attr-defined]
+    except (AttributeError, TypeError):
+        pass
+
+
 def setup(level: int = logging.INFO) -> None:
     """Configure logging to serial console and /log.txt."""
     logging.basicConfig(level=level)
     logging.getLogger().addHandler(_FileHandler())
+    _install_excepthook()
     # Separator so each boot is easy to find in the log.
     try:
         with open(_LOG_FILE, "a") as f:
