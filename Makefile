@@ -1,7 +1,7 @@
 SRC = main.py lib/
 
 VERSION ?= 0.1.0
-DEVICE  ?= /dev/ttyACM0
+DEVICE  ?= /dev/ttyACM1
 
 install:
 	@while IFS= read -r pkg; do mpremote mip install $$pkg; done < requirements.txt

@@ -1,11 +1,9 @@
 """
 Renderer for the KitchInv e-paper display.
 
-All screens share a common chrome: a 3px border with "KITCHINV" centred
-as a nameplate in the bottom edge.
-
-The Renderer builds FrameBuf objects; the caller owns the Display and decides
-when to push each frame to the panel.
+Each inventory screen has a compact status bar at the top showing the area
+name, sleep/wake mode icon, and battery level.  The remaining space is
+maximised for the inventory list.
 
 Public API
 ----------
@@ -18,8 +16,8 @@ Public API
 
     display.show(r.render_text_centered("To configure:", "1. Connect to WiFi: KitchInv-Setup"))
 
-    pages = r.render_area(area)   # list[FrameBuf], one per page
-    display.show(pages[0])
+    fb, cursor = r.render_area(area, is_deep_sleep=True, battery_pct=80)
+    display.show(fb)
 """
 
 import framebuf
@@ -27,66 +25,62 @@ import framebuf
 from lib.display import HEIGHT, WIDTH, FrameBuf, make_framebuf
 from lib.kitchinv import Area
 
-try:
-    from version import VERSION as _VERSION
-except ImportError:
-    _VERSION = "?"
-
 # ---------------------------------------------------------------------------
-# Display constants
+# Layout constants
 # ---------------------------------------------------------------------------
 
-# Border thickness in pixels.
-_BORDER = 3
+# Padding between content and screen edge.
+_PAD = 16
 
-# Padding between border and content area.
-_PAD = 24
-
-# Text scale used for body copy — each character is 8*scale × 8*scale pixels.
+# Body text (inventory items).
 _BODY_SCALE = 2
-
-# Character cell height at body scale.
 _CHAR_H = 8 * _BODY_SCALE
-
-# Gap between body-text lines.
 _LINE_GAP = 12
-
-# Total row height (character + gap).
 _ROW_H = _CHAR_H + _LINE_GAP
 
-# Nameplate label burned into the bottom border.
-_BRAND = "KITCHINV"
-
-# Scale used for the area-name header.
-_HEADER_SCALE = 3
-
-# Maximum number of item columns.
+# Column layout.
 _MAX_COLS = 2
-
-# Pixel gap between adjacent columns.
 _COL_GAP = 20
 
+# Status bar.
+_STATUS_H = 24       # total height of the status bar strip
+_STATUS_SCALE = 2    # text scale for the area name
+
+# Icon dimensions (8×8 bitmap drawn at _STATUS_ICON_SCALE).
+_STATUS_ICON_SCALE = 2
+_STATUS_ICON_W = 8 * _STATUS_ICON_SCALE  # 16 px
+
+# Battery icon dimensions.
+_BATT_W = 22
+_BATT_H = 14
+_BATT_NUB_W = 3
+_BATT_NUB_H = 8
+
 # ---------------------------------------------------------------------------
-# Derived layout geometry (computed once from the constants above)
+# Derived geometry
 # ---------------------------------------------------------------------------
 
-# Left edge and width of the content area (inside border + padding).
-_CONTENT_X = _BORDER + _PAD
-_CONTENT_W = WIDTH - 2 * (_BORDER + _PAD)
+_CONTENT_X = _PAD
+_CONTENT_W = WIDTH - 2 * _PAD
 
-# Top of the area-name header.
-_HEADER_Y = _BORDER + _PAD
-_HEADER_H = 8 * _HEADER_SCALE
+# Separator rule sits immediately below the status bar.
+_RULE_Y = _STATUS_H
 
-# Horizontal rule sits 4 px below the header text.
-_RULE_Y = _HEADER_Y + _HEADER_H + 4
+# Inventory items start 14 px below the rule — breathing room like Kobo chrome.
+_ITEMS_Y = _RULE_Y + 14
 
-# Item list starts 6 px below the rule.
-_ITEMS_Y = _RULE_Y + 6
+# Content extends to the bottom of the display.
+_CONTENT_BOTTOM = HEIGHT
 
-# Bottom of the content area (above border + padding).
-_CONTENT_BOTTOM = HEIGHT - _BORDER - _PAD
+# ---------------------------------------------------------------------------
+# Status bar icon bitmaps (8×8, MSB-first row bytes, 1 = set pixel)
+# ---------------------------------------------------------------------------
 
+# Crescent moon (☾) — timer / deep-sleep wake.
+_ICON_MOON = (0x3C, 0x60, 0xC0, 0xC0, 0xC0, 0xC0, 0x60, 0x3C)
+
+# Sun (☀) — button / active wake.
+_ICON_SUN = (0x24, 0x18, 0x99, 0x7E, 0x7E, 0x99, 0x18, 0x24)
 
 # ---------------------------------------------------------------------------
 # Low-level drawing primitives
@@ -159,51 +153,84 @@ def _draw_text_centered(fb: FrameBuf, text: str, y: int, color: int, scale: int)
 
 
 # ---------------------------------------------------------------------------
-# Screen-chrome helpers
+# Icon drawing
 # ---------------------------------------------------------------------------
 
 
-def _draw_frame(fb: FrameBuf) -> None:
-    """Draw the 3 px border and KITCHINV nameplate onto *fb*."""
-    fb.fill_rect(0, 0, WIDTH, _BORDER, 0)  # top
-    fb.fill_rect(0, 0, _BORDER, HEIGHT, 0)  # left
-    fb.fill_rect(WIDTH - _BORDER, 0, _BORDER, HEIGHT, 0)  # right
-
-    # Bottom border split around the nameplate.
-    brand_w = _text_width(_BRAND, scale=2)
-    brand_gap = brand_w + 20
-    gap_x = (WIDTH - brand_gap) // 2
-    fb.fill_rect(0, HEIGHT - _BORDER, gap_x, _BORDER, 0)
-    fb.fill_rect(gap_x + brand_gap, HEIGHT - _BORDER, WIDTH - gap_x - brand_gap, _BORDER, 0)
-
-    brand_x = (WIDTH - brand_w) // 2
-    brand_y = HEIGHT - _BORDER - (8 * 2 - _BORDER) // 2 - 8
-    _draw_text_scaled(fb, _BRAND, brand_x, brand_y, 0, scale=2)
-
-    ver = "v" + _VERSION
-    ver_w = _text_width(ver, scale=1)
-    ver_x = WIDTH - _BORDER - 6 - ver_w
-    ver_y = brand_y + (8 * 2 - 8) // 2  # vertically centred with brand
-    _draw_text_scaled(fb, ver, ver_x, ver_y, 0, scale=1)
+def _draw_bitmap_scaled(
+    fb: FrameBuf, rows: tuple, x: int, y: int, scale: int, color: int
+) -> None:
+    """Draw an 8×8 bitmap at (*x*, *y*) scaled by *scale*."""
+    for i, b in enumerate(rows):
+        _draw_glyph_row(fb, b, x, y + i * scale, scale, color)
 
 
-def _draw_area_header(fb: FrameBuf, area_name: str, page_indicator: str | None) -> None:
-    """Draw the area name, optional page indicator, and horizontal rule."""
-    _draw_text_scaled(fb, area_name, _CONTENT_X, _HEADER_Y, 0, _HEADER_SCALE)
+def _draw_hamburger(fb: FrameBuf, x: int, y: int, color: int) -> None:
+    """Draw a hamburger menu icon (≡) as three lines within a 16×16 px box."""
+    fb.fill_rect(x, y + 3, 16, 2, color)
+    fb.fill_rect(x, y + 7, 16, 2, color)
+    fb.fill_rect(x, y + 11, 16, 2, color)
 
+
+def _draw_battery(fb: FrameBuf, x: int, y: int, pct: "int | None", color: int) -> None:
+    """Draw a battery icon at (*x*, *y*). *pct* is 0-100 or None (unknown)."""
+    # Body outline.
+    fb.hline(x, y, _BATT_W, color)
+    fb.hline(x, y + _BATT_H - 1, _BATT_W, color)
+    fb.vline(x, y, _BATT_H, color)
+    fb.vline(x + _BATT_W - 1, y, _BATT_H, color)
+    # Positive terminal nub on the right.
+    nub_y = y + (_BATT_H - _BATT_NUB_H) // 2
+    fb.fill_rect(x + _BATT_W, nub_y, _BATT_NUB_W, _BATT_NUB_H, color)
+    # Charge level fill.
+    if pct is not None and pct > 0:
+        fill_w = (_BATT_W - 2) * pct // 100
+        if fill_w > 0:
+            fb.fill_rect(x + 1, y + 1, fill_w, _BATT_H - 2, color)
+
+
+# ---------------------------------------------------------------------------
+# Status bar
+# ---------------------------------------------------------------------------
+
+
+def _draw_status_bar(
+    fb: FrameBuf,
+    area_name: str,
+    page_indicator: "str | None",
+    is_deep_sleep: bool,
+    battery_pct: "int | None",
+) -> None:
+    """Draw the full-width status bar at y=0 (black background, white content).
+
+    Layout: ≡ area_name  (left) | page_indicator  sleep_icon  battery  (right)
+    """
+    icon_y = (_STATUS_H - _STATUS_ICON_W) // 2   # vertically centre 16-px icons
+    text_y = (_STATUS_H - 8 * _STATUS_SCALE) // 2  # vertically centre scale-2 text
+
+    # Left: hamburger + area name + optional page indicator.
+    _draw_hamburger(fb, 8, icon_y, 0)
+    name_x = 8 + _STATUS_ICON_W + 10
+    _draw_text_scaled(fb, _ascii_safe(area_name), name_x, text_y, 0, _STATUS_SCALE)
     if page_indicator is not None:
-        indicator_w = _text_width(page_indicator, _BODY_SCALE)
-        indicator_x = _CONTENT_X + _CONTENT_W - indicator_w
-        indicator_y = _HEADER_Y + (_HEADER_H - _CHAR_H) // 2
-        _draw_text_scaled(fb, page_indicator, indicator_x, indicator_y, 0, _BODY_SCALE)
+        ind_x = name_x + _text_width(_ascii_safe(area_name), _STATUS_SCALE) + 6
+        ind_y = (_STATUS_H - 8) // 2  # centre scale-1 (8 px) text
+        _draw_text_scaled(fb, page_indicator, ind_x, ind_y, 0, 1)
 
-    fb.hline(_CONTENT_X, _RULE_Y, _CONTENT_W, 0)
+    # Right: battery.
+    batt_x = WIDTH - 8 - _BATT_W - _BATT_NUB_W
+    batt_y = (_STATUS_H - _BATT_H) // 2
+    _draw_battery(fb, batt_x, batt_y, battery_pct, 0)
+
+    # Sleep/wake icon (left of battery with 8 px gap).
+    sleep_x = batt_x - 8 - _STATUS_ICON_W
+    bitmap = _ICON_MOON if is_deep_sleep else _ICON_SUN
+    _draw_bitmap_scaled(fb, bitmap, sleep_x, icon_y, _STATUS_ICON_SCALE, 0)
 
 
 # ---------------------------------------------------------------------------
-# Page builders
+# Accent / truncation helpers
 # ---------------------------------------------------------------------------
-
 
 # MicroPython's built-in font is 7-bit ASCII only.  Map common accented
 # characters to their ASCII base so they render instead of showing as '?'.
@@ -244,12 +271,22 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[: max_chars - 1] + ">"
 
 
-def _make_status_page(area_name: str, message: str) -> FrameBuf:
+# ---------------------------------------------------------------------------
+# Page builders
+# ---------------------------------------------------------------------------
+
+
+def _make_status_page(
+    area_name: str,
+    message: str,
+    is_deep_sleep: bool,
+    battery_pct: "int | None",
+) -> FrameBuf:
     """Render a single-page frame with *message* centred in the item area."""
     fb = make_framebuf()
     fb.fill(1)
-    _draw_frame(fb)
-    _draw_area_header(fb, _ascii_safe(area_name), None)
+    _draw_status_bar(fb, area_name, None, is_deep_sleep, battery_pct)
+    fb.hline(_CONTENT_X, _RULE_Y, _CONTENT_W, 0)
     message_y = (_ITEMS_Y + _CONTENT_BOTTOM - _CHAR_H) // 2
     _draw_text_centered(fb, message, message_y, 0, _BODY_SCALE)
     return fb
@@ -265,14 +302,16 @@ def _make_items_page(
     col_w: int,
     max_chars_per_col: int,
     items_per_page: int,
+    is_deep_sleep: bool,
+    battery_pct: "int | None",
 ) -> FrameBuf:
     """Render one page of an area item list into a new FrameBuf."""
     fb = make_framebuf()
     fb.fill(1)
-    _draw_frame(fb)
 
-    indicator = "{} / {}".format(page + 1, total_pages) if total_pages > 1 else None
-    _draw_area_header(fb, _ascii_safe(area_name), indicator)
+    indicator = "{}/{}".format(page + 1, total_pages) if total_pages > 1 else None
+    _draw_status_bar(fb, area_name, indicator, is_deep_sleep, battery_pct)
+    fb.hline(_CONTENT_X, _RULE_Y, _CONTENT_W, 0)
 
     page_items = items[page * items_per_page : (page + 1) * items_per_page]
     for i, item in enumerate(page_items):
@@ -363,17 +402,34 @@ def _build_cursor(area: Area, page: int) -> RenderCursor:
     max_chars_per_col = col_w // _char_width(_BODY_SCALE)
 
     return RenderCursor(
-        area.name, area.items, page, total_pages,
-        rows_per_col, render_cols, col_w, max_chars_per_col, items_per_page,
+        area.name,
+        area.items,
+        page,
+        total_pages,
+        rows_per_col,
+        render_cols,
+        col_w,
+        max_chars_per_col,
+        items_per_page,
     )
 
 
-def _render_page(cursor: RenderCursor) -> FrameBuf:
+def _render_page(
+    cursor: RenderCursor, is_deep_sleep: bool, battery_pct: "int | None"
+) -> FrameBuf:
     """Render the current page described by *cursor* into a new FrameBuf."""
     return _make_items_page(
-        cursor.area_name, cursor.items, cursor.page, cursor.total_pages,
-        cursor._rows_per_col, cursor._num_cols, cursor._col_w,
-        cursor._max_chars_per_col, cursor._items_per_page,
+        cursor.area_name,
+        cursor.items,
+        cursor.page,
+        cursor.total_pages,
+        cursor._rows_per_col,
+        cursor._num_cols,
+        cursor._col_w,
+        cursor._max_chars_per_col,
+        cursor._items_per_page,
+        is_deep_sleep,
+        battery_pct,
     )
 
 
@@ -387,17 +443,21 @@ class Renderer:
         """Return a FrameBuf with *lines* of text centred on screen."""
         fb = make_framebuf()
         fb.fill(1)
-        _draw_frame(fb)
-
         block_h = len(lines) * _CHAR_H + (len(lines) - 1) * _LINE_GAP
         y = (HEIGHT - block_h) // 2
         for line in lines:
             _draw_text_centered(fb, line, y, 0, _BODY_SCALE)
             y += _ROW_H
-
         return fb
 
-    def render_area(self, area: Area, page: int = 0) -> tuple:
+    def render_area(
+        self,
+        area: Area,
+        page: int = 0,
+        *,
+        is_deep_sleep: bool = True,
+        battery_pct: "int | None" = None,
+    ) -> tuple:
         """Return (FrameBuf, RenderCursor | None) for *page* of *area*.
 
         The cursor holds the layout state needed to render subsequent pages.
@@ -410,11 +470,17 @@ class Renderer:
         next_page() to keep peak heap usage to a single 48 KB frame.
         """
         if not area.items:
-            return _make_status_page(area.name, "No items"), None
+            return _make_status_page(area.name, "No items", is_deep_sleep, battery_pct), None
         cursor = _build_cursor(area, page)
-        return _render_page(cursor), cursor
+        return _render_page(cursor, is_deep_sleep, battery_pct), cursor
 
-    def next_page(self, cursor: RenderCursor) -> tuple:
+    def next_page(
+        self,
+        cursor: RenderCursor,
+        *,
+        is_deep_sleep: bool = True,
+        battery_pct: "int | None" = None,
+    ) -> tuple:
         """Return (FrameBuf, cursor) for the next page.
 
         Advances the cursor in-place and renders the new page.  The caller
@@ -424,4 +490,4 @@ class Renderer:
         Caller must check cursor.has_next before calling.
         """
         cursor.page += 1
-        return _render_page(cursor), cursor
+        return _render_page(cursor, is_deep_sleep, battery_pct), cursor
