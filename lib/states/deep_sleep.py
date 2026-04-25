@@ -96,8 +96,12 @@ class DeepSleepState:
 
     def _render_and_show(self, area: Area, state: CycleState) -> object:
         """Render the current page and push it to the display. Returns the cursor."""
+        from lib.battery import read_pct
+
         logging.info("Rendering %r page %d (full refresh)", area.name, state.page_index)
-        fb, cursor = self._renderer.render_area(area, state.page_index)
+        fb, cursor = self._renderer.render_area(
+            area, state.page_index, is_deep_sleep=True, battery_pct=read_pct()
+        )
         self._display.show(fb)
         return cursor
 

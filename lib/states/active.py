@@ -78,11 +78,13 @@ class ActiveState:
 
     def _load_and_render(self, aid: int, aname: str, page: int) -> tuple:
         """Load area from cache and render it. Returns (fb, cursor) or (None, None)."""
+        from lib.battery import read_pct
+
         area = self._db.load_area(aid, aname)
         if area is None:
             logging.error("Cache miss for area %r in active mode", aname)
             return None, None
-        return self._renderer.render_area(area, page)
+        return self._renderer.render_area(area, page, is_deep_sleep=False, battery_pct=read_pct())
 
     def _sleep(self) -> None:
         """Configure wake sources and enter deep sleep."""
