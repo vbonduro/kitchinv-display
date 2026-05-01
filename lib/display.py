@@ -18,7 +18,6 @@ Usage
     fb.fill(1)                  # white background (1 = white, 0 = black)
     fb.text("Hello", 10, 10, 0)
     d.show(fb)                  # stable render path used by all states
-    d.show_fast(fb)             # compatibility alias for show()
     d.sleep()                   # deep-sleep before power-off
 """
 
@@ -90,10 +89,6 @@ class Display:
             self._epd.init_fast()
             Display._show_initialized = True
         self._epd.display(fb._buf)
-
-    def show_fast(self, fb: FrameBuf) -> None:
-        """Compatibility wrapper for callers that still use the old fast-refresh name."""
-        self.show(fb)
 
     def sleep(self) -> None:
         """Put the panel into deep sleep.  Call Display() again to wake it."""

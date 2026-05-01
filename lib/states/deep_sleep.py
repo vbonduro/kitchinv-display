@@ -82,13 +82,15 @@ class DeepSleepState:
         area = db.load_area(area_id, area_name)
         if area is None:
             logging.error("Cache miss for area %r after sync — skipping render", area_name)
-            self._enter_sleep(_CYCLE_INTERVAL_MS)  # no-return
+            buttons.configure_wake()
+            self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
 
         assert area is not None
 
         if state.has_items_changed(len(area.items)):
             state.save()
-            self._enter_sleep(1)  # no-return
+            buttons.configure_wake()
+            self._sleeper.sleep(1)  # no-return
 
         return area, state
 
@@ -111,12 +113,8 @@ class DeepSleepState:
     def _sleep(self) -> None:
         """Configure wake sources and enter deep sleep."""
         logging.info("Sleeping %ds", _CYCLE_INTERVAL_MS // 1000)
-        self._enter_sleep(_CYCLE_INTERVAL_MS)  # no-return
-
-    def _enter_sleep(self, ms: int) -> None:
-        """Arm wake sources, then enter the configured sleep mode."""
         buttons.configure_wake()
-        self._sleeper.sleep(ms)  # no-return
+        self._sleeper.sleep(_CYCLE_INTERVAL_MS)  # no-return
 
     def _fetch_error(self, message: str) -> None:
         """Log *message*, show a retry notice, and sleep for retry.
@@ -126,4 +124,5 @@ class DeepSleepState:
         """
         logging.error("%s — retrying in %ds", message, _ERROR_RETRY_MS // 1000)
         self._display.show(self._renderer.render_text_centered("Fetch failed", "Retrying in 1 min"))
-        self._enter_sleep(_ERROR_RETRY_MS)  # no-return
+        buttons.configure_wake()
+        self._sleeper.sleep(_ERROR_RETRY_MS)  # no-return
