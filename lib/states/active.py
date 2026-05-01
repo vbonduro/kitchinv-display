@@ -69,7 +69,7 @@ class ActiveState:
         if cursor is not None:
             state.update_page(cursor.page)
 
-        self._display.show_fast(fb)
+        self._display.show(fb)
         del fb
 
         state.advance(cursor)
