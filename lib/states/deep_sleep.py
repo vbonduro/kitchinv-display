@@ -96,7 +96,7 @@ class DeepSleepState:
         """Render the current page and push it to the display. Returns the cursor."""
         from lib.battery import read_pct
 
-        logging.info("Rendering %r page %d (full refresh)", area.name, state.page_index)
+        logging.info("Rendering %r page %d", area.name, state.page_index)
         fb, cursor = self._renderer.render_area(
             area, state.page_index, is_deep_sleep=True, battery_pct=read_pct()
         )
@@ -114,8 +114,7 @@ class DeepSleepState:
         self._enter_sleep(_CYCLE_INTERVAL_MS)  # no-return
 
     def _enter_sleep(self, ms: int) -> None:
-        """Park the panel, arm wake sources, then enter the configured sleep mode."""
-        self._display.sleep()
+        """Arm wake sources, then enter the configured sleep mode."""
         buttons.configure_wake()
         self._sleeper.sleep(ms)  # no-return
 

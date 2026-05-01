@@ -12,13 +12,13 @@ Usage
 -----
     from lib import display
 
-    d = display.Display()       # initialises panel and clears to white
+    d = display.Display()       # initialises panel hardware
 
     fb = display.make_framebuf()
     fb.fill(1)                  # white background (1 = white, 0 = black)
     fb.text("Hello", 10, 10, 0)
-    d.show(fb)                  # full refresh (~2-3 s)
-    d.show_fast(fb)             # fast refresh (slight ghosting, ~0.5 s)
+    d.show(fb)                  # stable render path used by all states
+    d.show_fast(fb)             # compatibility alias for show()
     d.sleep()                   # deep-sleep before power-off
 """
 
@@ -58,7 +58,7 @@ def make_framebuf() -> "FrameBuf":
     memory on the Pico W's constrained heap.
 
     The caller owns it and uses it for drawing.  Pass it to
-    Display.show() or Display.show_fast() when ready to render.
+    Display.show() when ready to render.
     Multiple framebuffers can coexist (e.g. one for status, one for inventory).
     """
     gc.collect()
@@ -66,7 +66,7 @@ def make_framebuf() -> "FrameBuf":
 
 
 class Display:
-    _fast_initialized: bool = False
+    _show_initialized: bool = False
 
     def __init__(self) -> None:
         """Initialise the e-paper panel hardware.
@@ -82,23 +82,18 @@ class Display:
         self._epd.Clear()
 
     def show(self, fb: FrameBuf) -> None:
-        """Push *fb* to the panel using a full refresh (~2-3 s).
+        """Push *fb* to the panel using the stable display path.
 
         *fb* must be a FrameBuf as returned by make_framebuf().
         """
+        if not Display._show_initialized:
+            self._epd.init_fast()
+            Display._show_initialized = True
         self._epd.display(fb._buf)
 
     def show_fast(self, fb: FrameBuf) -> None:
-        """Push *fb* using the fast-refresh LUT, skipping init on subsequent calls.
-
-        init_fast() resets the panel and re-sends the LUT (~300 ms overhead).
-        The class variable ensures it runs only once per power cycle — deep sleep
-        resets all Python state, so _fast_initialized resets to False on each boot.
-        """
-        if not Display._fast_initialized:
-            self._epd.init_fast()
-            Display._fast_initialized = True
-        self._epd.display(fb._buf)
+        """Compatibility wrapper for callers that still use the old fast-refresh name."""
+        self.show(fb)
 
     def sleep(self) -> None:
         """Put the panel into deep sleep.  Call Display() again to wake it."""
